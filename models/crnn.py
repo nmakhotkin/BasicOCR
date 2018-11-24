@@ -32,9 +32,9 @@ def read_charset(filename):
         return charset, inv_charset
 
 
-def get_str_labels(char_map, str, add_eos=True):
+def get_str_labels(char_map, v, add_eos=True):
     result = []
-    for t in str:
+    for t in v:
         i = char_map.get(t, -1)
         if i >= 0:
             result.append(i)
@@ -52,7 +52,7 @@ def null_dataset():
 
 def input_fn(params, is_training):
     char_map = params['charset']
-    labels = pd.read_csv(params['data_set'] + '/labels.csv')
+    labels = pd.read_csv(params['data_set'] + '/labels.csv', dtype={'text': str})
     limit = params['limit_train']
     if limit is None or limit<1:
         alldata = labels.iloc[:].values
