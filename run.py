@@ -220,6 +220,8 @@ def main():
             })
 
     _,charset = crnn.read_charset(args.charset_file)
+    logging.info("Charset: {}".format(charset))
+    logging.info("NumClasses: {}".format(len(charset)))
     params = {
 
         'batch_size': args.batch_size,
@@ -233,7 +235,7 @@ def main():
         'epoch': args.epoch,
         'limit_train': args.limit_train,
         'max_target_seq_length':args.max_target_seq_length,
-        'num_labels':len(charset),
+        'num_labels':len(charset)+1,
         'rnn_type':args.rnn_type,
         'beam_search_decoder': False,
         'grad_clip':args.grad_clip,
