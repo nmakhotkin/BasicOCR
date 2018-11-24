@@ -54,7 +54,7 @@ def input_fn(params, is_training):
     char_map = params['charset']
     labels = pd.read_csv(params['data_set'] + '/labels.csv')
     limit = params['limit_train']
-    if limit is None:
+    if limit is None or limit<1:
         alldata = labels.iloc[:].values
     else:
         alldata = labels.iloc[:limit].values
