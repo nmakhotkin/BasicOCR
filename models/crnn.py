@@ -52,7 +52,7 @@ def null_dataset():
 
 def input_fn(params, is_training):
     char_map = params['charset']
-    labels = pd.read_csv(params['data_set'] + '/labels.csv', dtype={'text': str})
+    labels = pd.read_csv(params['data_set'] + '/labels.csv', converters={'text': str},na_values=[], keep_default_na=False)
     limit = params['limit_train']
     if limit is None or limit<1:
         alldata = labels.iloc[:].values
