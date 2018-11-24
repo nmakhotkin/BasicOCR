@@ -21,7 +21,7 @@ def read_charset(filename):
             if m is None:
                 logging.info('incorrect charset file. line #{}: {}'.format(i, line))
                 continue
-            code = int(m.group(1))
+            code = int(m.group(1))+1
             char = m.group(2)
             if char == '<nul>':
                 continue
@@ -39,7 +39,7 @@ def get_str_labels(char_map, str, add_eos=True):
         if i >= 0:
             result.append(i)
     if add_eos:
-        result.append(len(char_map) - 1)
+        result.append(len(char_map))
     return result
 
 
@@ -92,7 +92,7 @@ def input_fn(params, is_training):
                     for i in range(len(labels)):
                         l = len(labels[i])
                         if l<maxlen:
-                            labels[i] = np.pad(labels[i],(0,maxlen-l),'constant',constant_values=len(char_map) - 1)
+                            labels[i] = np.pad(labels[i],(0,maxlen-l),'constant',constant_values=0)
 
                     yield (np.stack(features),np.stack(labels))
         ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
