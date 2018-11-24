@@ -6,6 +6,41 @@ import tensorflow as tf
 import glob
 import logging
 import pandas as pd
+import PIL.Image
+import numpy as np
+
+import re
+
+
+def read_charset(filename):
+    pattern = re.compile(r'(\d+)\t(.+)')
+    charset = {}
+    with tf.gfile.GFile(filename) as f:
+        for i, line in enumerate(f):
+            m = pattern.match(line)
+            if m is None:
+                logging.info('incorrect charset file. line #{}: {}'.format(i, line))
+                continue
+            code = int(m.group(1))
+            char = m.group(2)
+            if char == '<nul>':
+                continue
+            charset[code] = char
+        inv_charset = {}
+        for k, v in charset.items():
+            inv_charset[v] = k
+        return charset, inv_charset
+
+
+def get_str_labels(char_map, str, add_eos=True):
+    result = []
+    for t in str:
+        i = char_map.get(t, -1)
+        if i >= 0:
+            result.append(i)
+    if add_eos:
+        result.append(len(char_map) - 1)
+    return result
 
 
 def null_dataset():
@@ -16,32 +51,73 @@ def null_dataset():
 
 
 def input_fn(params, is_training):
+    char_map = params['charset']
     labels = pd.read_csv(params['data_set'] + '/labels.csv')
     limit = params['limit_train']
     if limit is None:
-        data = labels.iloc[0:limit].values
+        alldata = labels.iloc[:].values
     else:
-        data = labels.iloc[:].values
-
+        alldata = labels.iloc[:limit].values
+    batch_size = params['batch_size']
+    count = len(alldata) // batch_size
     def _input_fn():
-        ds = tf.data.Dataset.from_tensor_slices(data)
-        if is_training:
-            ds = ds.repeat(count=params['epoch']).shuffle(params['batch_size'] * 10)
-
-        def _read_image(v):
-            image = tf.image.decode_png(tf.read_file('{}/{}.png'.format(params['data_set'], v[0])), 3)
-            image = image / 127.5 - 1
-            return image, 0
-
-        ds = ds.map(_read_image, num_parallel_calls=1)
-        if is_training:
-            ds = ds.apply(tf.contrib.data.batch_and_drop_remainder(params['batch_size']))
-        else:
-            ds = ds.padded_batch(params['batch_size'], padded_shapes=(
-                {'image': [150, 32, 3]}, tf.TensorShape([])))
+        def _gen():
+            for _ in range(params['epoch']):
+                data = np.random.permutation(alldata)
+                for j in range(count):
+                    features = []
+                    labels = []
+                    for i in range(batch_size):
+                        k = j*batch_size+i
+                        image = PIL.Image.open('{}/{}.png'.format(params['data_set'],data[k,0]))
+                        width, height = image.size
+                        ration_w = max(width/150.0,1.0)
+                        ration_h = max(height/32.0,1.0)
+                        ratio = max(ration_h,ration_w)
+                        if ratio>1:
+                            width = int(width/ratio)
+                            height = int(height/ratio)
+                            image = image.resize((width,height))
+                        image = np.asarray(image)
+                        pw = max(0,150-image.shape[1])
+                        ph = max(0,32-image.shape[0])
+                        image = np.pad(image,((0,ph),(0,pw),(0,0)),'constant',constant_values=0)
+                        image = image.astype(np.float32)/127.5-1
+                        label = get_str_labels(char_map,data[k,1])
+                        features.append(image)
+                        labels.append(label)
+                    yield (features,labels)
+        ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
+            tf.TensorShape([params['batch_size'],32,150,3]),
+            tf.TensorShape([params['batch_size'],None])))
+        ds = ds.prefetch(4)
         return ds
-
     return _input_fn
+
+
+def _basic_lstm(mode, params, rnn_inputs):
+
+    with tf.variable_scope('LSTM'):
+        layers_list = []
+        for _ in range(params['num_layers']):
+            cell = tf.nn.rnn_cell.BasicLSTMCell(params['hidden_size'], state_is_tuple=True)
+            layers_list.append(cell)
+        cell = tf.nn.rnn_cell.MultiRNNCell(layers_list, state_is_tuple=True)
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        # make rnn state for training
+        with tf.variable_scope('Hidden_state'):
+            state_variables = []
+            for state_c, state_h in cell.zero_state(params['batch_size'], tf.float32):
+                state_variables.append(tf.nn.rnn_cell.LSTMStateTuple(
+                    tf.Variable(state_c, trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES]),
+                    tf.Variable(state_h, trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES])))
+            rnn_state = tuple(state_variables)
+    else:
+        # use default for evaluation
+        rnn_state = cell.zero_state(params['batch_size'], tf.float32)
+    with tf.name_scope('LSTM'):
+        rnn_output, new_states = tf.nn.dynamic_rnn(cell, rnn_inputs, initial_state=rnn_state, time_major=True)
+    return rnn_output, rnn_state, new_states
 
 
 def _cudnn_lstm_compatible(params, rnn_inputs):
@@ -92,7 +168,7 @@ def _cudnn_lstm(mode, params, rnn_inputs):
     return rnn_output, rnn_state, new_states
 
 
-def _model_fn(features, labels, mode, params=None, config=None):
+def _crnn_model_fn(features, labels, mode, params=None, config=None):
     global_step = tf.train.get_or_create_global_step()
     images = tf.transpose(features, [0, 2, 1, 3])
     if (mode == tf.estimator.ModeKeys.TRAIN or
@@ -151,6 +227,8 @@ def _model_fn(features, labels, mode, params=None, config=None):
         rnn_output, rnn_state, new_states = _cudnn_lstm(mode, params, rnn_inputs)
     elif params['rnn_type'] == 'CudnnCompatibleLSTM':
         rnn_output, rnn_state, new_states = _cudnn_lstm_compatible(params, rnn_inputs)
+    else:
+        rnn_output, rnn_state, new_states = _basic_lstm(mode, params, rnn_inputs)
 
     with tf.variable_scope('Output_layer'):
         logits = tf.layers.dense(rnn_output, params['num_labels'],
@@ -226,7 +304,7 @@ class BaseOCR(tf.estimator.Estimator):
             warm_start_from=None
     ):
         def _model_fn(features, labels, mode, params, config):
-            return _model_fn(
+            return _crnn_model_fn(
                 features=features,
                 labels=labels,
                 mode=mode,

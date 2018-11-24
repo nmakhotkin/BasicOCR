@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument(
         '--batch_size',
         type=int,
-        default=4,
+        default=2,
         help='Batch size.',
     )
     parser.add_argument(
@@ -57,8 +57,8 @@ def parse_args():
     )
     parser.add_argument(
         '--rnn_type',
-        default='CudnnLSTM',
-        choices=['CudnnLSTM','CudnnCompatibleLSTM'],
+        default='BasicLSTM',
+        choices=['BasicLSTM','CudnnLSTM','CudnnCompatibleLSTM'],
         help='Witch LSTM cell use for RNN',
     )
     parser.add_argument(
@@ -72,6 +72,12 @@ def parse_args():
         type=int,
         default=16,
         help='LSTM hidden size.',
+    )
+    parser.add_argument(
+        '--lstm_direction_type',
+        choices=['unidirectional','bidirectional'],
+        default='unidirectional',
+        help='Set LSTM direction type',
     )
     parser.add_argument(
         '--grad_clip',
@@ -90,6 +96,11 @@ def parse_args():
         type=int,
         default=1,
         help='Epoch to trian',
+    )
+    parser.add_argument(
+        '--charset_file',
+        default='testdata/custom_charset.txt',
+        help='Charset file',
     )
     parser.add_argument(
         '--save_summary_steps',
@@ -208,6 +219,7 @@ def main():
                 'task': {'type': 'evaluator', 'index': 0}
             })
 
+    _,charset = crnn.read_charset(args.charset_file)
     params = {
 
         'batch_size': args.batch_size,
@@ -219,16 +231,18 @@ def main():
         'log_step_count_steps': args.log_step_count_steps,
         'data_set': args.data_set,
         'epoch': args.epoch,
-        'dropout': args.dropout,
         'limit_train': args.limit_train,
         'max_target_seq_length':args.max_target_seq_length,
-        'num_labels':args.num_labels,
+        'num_labels':len(charset),
         'rnn_type':args.rnn_type,
         'beam_search_decoder': False,
         'grad_clip':args.grad_clip,
         'hidden_size':args.hidden_size,
         'num_layers':args.num_layers,
         'output_keep_prob':args.output_keep_prob,
+        'lstm_direction_type':args.lstm_direction_type,
+        'charset':charset,
+        'charset_file':args.charset_file,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):
