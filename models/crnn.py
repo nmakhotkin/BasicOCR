@@ -64,6 +64,7 @@ def input_fn(params, is_training):
         def _gen():
             for _ in range(params['epoch']):
                 data = np.random.permutation(alldata)
+                maxlen = 0
                 for j in range(count):
                     features = []
                     labels = []
@@ -85,7 +86,14 @@ def input_fn(params, is_training):
                         image = image.astype(np.float32)/127.5-1
                         label = get_str_labels(char_map,data[k,1])
                         features.append(image)
+                        if len(label)>maxlen:
+                            maxlen = len(label)
                         labels.append(label)
+                    for i in range(len(labels)):
+                        l = len(labels[i])
+                        if l<maxlen:
+                            labels[i] = np.pad(labels[i],(0,maxlen-l),'constant',constant_values=len(char_map) - 1)
+
                     yield (np.stack(features),np.stack(labels))
         ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
             tf.TensorShape([params['batch_size'],32,150,3]),
