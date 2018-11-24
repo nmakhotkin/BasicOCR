@@ -1,0 +1,242 @@
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import tensorflow as tf
+import glob
+import logging
+import pandas as pd
+
+
+def null_dataset():
+    def _input_fn():
+        return None
+
+    return _input_fn
+
+
+def input_fn(params, is_training):
+    labels = pd.read_csv(params['data_set'] + '/labels.csv')
+    limit = params['limit_train']
+    if limit is None:
+        data = labels.iloc[0:limit].values
+    else:
+        data = labels.iloc[:].values
+
+    def _input_fn():
+        ds = tf.data.Dataset.from_tensor_slices(data)
+        if is_training:
+            ds = ds.repeat(count=params['epoch']).shuffle(params['batch_size'] * 10)
+
+        def _read_image(v):
+            image = tf.image.decode_png(tf.read_file('{}/{}.png'.format(params['data_set'], v[0])), 3)
+            image = image / 127.5 - 1
+            return image, 0
+
+        ds = ds.map(_read_image, num_parallel_calls=1)
+        if is_training:
+            ds = ds.apply(tf.contrib.data.batch_and_drop_remainder(params['batch_size']))
+        else:
+            ds = ds.padded_batch(params['batch_size'], padded_shapes=(
+                {'image': [150, 32, 3]}, tf.TensorShape([])))
+        return ds
+
+    return _input_fn
+
+
+def _cudnn_lstm_compatible(params, rnn_inputs):
+    if params['lstm_direction_type'] == 'bidirectional':
+        with tf.variable_scope('cudnn_lstm'):
+            single_cell = lambda: tf.contrib.rnn.BasicLSTMCell(params['hidden_size'], forget_bias=0,
+                                                               name="cudnn_compatible_lstm_cell")
+            cells_fw = [single_cell() for _ in range(params['num_layers'])]
+            cells_bw = [single_cell() for _ in range(params['num_layers'])]
+            rnn_state_fw = [cell.zero_state(params['batch_size'], tf.float32) for cell in cells_fw]
+            rnn_state_bw = [cell.zero_state(params['batch_size'], tf.float32) for cell in cells_bw]
+        with tf.variable_scope('cudnn_lstm'):
+            rnn_output, new_state_fw, new_states_bw = tf.contrib.rnn.stack_bidirectional_dynamic_rnn(
+                cells_fw,
+                cells_bw,
+                rnn_inputs,
+                initial_states_fw=rnn_state_fw,
+                initial_states_bw=rnn_state_bw,
+                sequence_length=None,
+                time_major=True)
+        return rnn_output, rnn_state_fw + rnn_state_bw, new_state_fw + new_states_bw
+    else:
+        with tf.variable_scope('cudnn_lstm'):
+            single_cell = lambda: tf.contrib.rnn.BasicLSTMCell(params['hidden_size'], forget_bias=0,
+                                                               name="cudnn_compatible_lstm_cell")
+            cells = [single_cell() for _ in range(params['num_layers'])]
+            cell = tf.nn.rnn_cell.MultiRNNCell(cells)
+            rnn_state = cell.zero_state(params['batch_size'], tf.float32)
+        with tf.variable_scope('cudnn_lstm'):
+            rnn_output, new_states = tf.nn.dynamic_rnn(cell, rnn_inputs, sequence_length=None,
+                                                       initial_state=rnn_state, time_major=True)
+        return rnn_output, rnn_state, new_states
+
+
+def _cudnn_lstm(mode, params, rnn_inputs):
+    with tf.variable_scope('LSTM'):
+        dir = 2 if params['lstm_direction_type'] == 'bidirectional' else 1
+        cell = tf.contrib.cudnn_rnn.CudnnLSTM(params['num_layers'], params['hidden_size'],
+                                              direction=params['lstm_direction_type'],
+                                              dropout=float(params['output_keep_prob']))
+        shape = [params['num_layers'] * dir, params['batch_size'], params['hidden_size']]
+        rnn_state = (
+            tf.Variable(tf.zeros(shape, tf.float32), trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES]),
+            tf.Variable(tf.zeros(shape, tf.float32), trainable=False, collections=[tf.GraphKeys.LOCAL_VARIABLES]))
+    with tf.name_scope('LSTM'):
+        rnn_output, new_states = cell(rnn_inputs, initial_state=rnn_state,
+                                      training=(mode == tf.estimator.ModeKeys.TRAIN))
+    return rnn_output, rnn_state, new_states
+
+
+def _model_fn(features, labels, mode, params=None, config=None):
+    global_step = tf.train.get_or_create_global_step()
+    images = tf.transpose(features, [0, 2, 1, 3])
+    if (mode == tf.estimator.ModeKeys.TRAIN or
+            mode == tf.estimator.ModeKeys.EVAL):
+        idx = tf.where(tf.not_equal(labels, 0))
+        sparse_labels = tf.SparseTensor(idx, tf.gather_nd(labels, idx),
+                                        [params['batch_size'], params['max_target_seq_length']])
+        sparse_labels, _ = tf.sparse_fill_empty_rows(sparse_labels, params['num_labels'] - 1)
+
+    # 64 / 3 x 3 / 1 / 1
+    conv1 = tf.layers.conv2d(inputs=images, filters=64, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # 2 x 2 / 1
+    pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+
+    # 128 / 3 x 3 / 1 / 1
+    conv2 = tf.layers.conv2d(inputs=pool1, filters=128, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # 2 x 2 / 1
+    pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+
+    # 256 / 3 x 3 / 1 / 1
+    conv3 = tf.layers.conv2d(inputs=pool2, filters=256, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # Batch normalization layer
+    bnorm1 = tf.layers.batch_normalization(conv3)
+
+    # 256 / 3 x 3 / 1 / 1
+    conv4 = tf.layers.conv2d(inputs=bnorm1, filters=256, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # 1 x 2 / 1
+    pool3 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=[1, 2], padding="same")
+
+    # 512 / 3 x 3 / 1 / 1
+    conv5 = tf.layers.conv2d(inputs=pool3, filters=512, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # Batch normalization layer
+    bnorm2 = tf.layers.batch_normalization(conv5)
+
+    # 512 / 3 x 3 / 1 / 1
+    conv6 = tf.layers.conv2d(inputs=bnorm2, filters=512, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+
+    # 1 x 2 / 2
+    pool4 = tf.layers.max_pooling2d(inputs=conv6, pool_size=[2, 2], strides=[1, 2], padding="same")
+
+    # 512 / 2 x 2 / 1 / 0
+    conv7 = tf.layers.conv2d(inputs=pool4, filters=512, kernel_size=(2, 2), padding="valid", activation=tf.nn.relu)
+
+    reshaped_cnn_output = tf.reshape(conv7, [params['batch_size'], -1, 512])
+    rnn_inputs = tf.transpose(reshaped_cnn_output, perm=[1, 0, 2])
+
+    max_char_count = rnn_inputs.get_shape().as_list()[0]
+    input_lengths = tf.zeros([params['batch_size']], dtype=tf.int32) + max_char_count
+
+    if params['rnn_type'] == 'CudnnLSTM':
+        rnn_output, rnn_state, new_states = _cudnn_lstm(mode, params, rnn_inputs)
+    elif params['rnn_type'] == 'CudnnCompatibleLSTM':
+        rnn_output, rnn_state, new_states = _cudnn_lstm_compatible(params, rnn_inputs)
+
+    with tf.variable_scope('Output_layer'):
+        logits = tf.layers.dense(rnn_output, params['num_labels'],
+                                 kernel_initializer=tf.contrib.layers.xavier_initializer())
+
+    if params['beam_search_decoder']:
+        decoded, _log_prob = tf.nn.ctc_beam_search_decoder(logits, input_lengths)
+    else:
+        decoded, _log_prob = tf.nn.ctc_greedy_decoder(logits, input_lengths)
+
+    prediction = tf.to_int32(decoded[0])
+
+    metrics = {}
+    if (mode == tf.estimator.ModeKeys.TRAIN or
+            mode == tf.estimator.ModeKeys.EVAL):
+        levenshtein = tf.edit_distance(prediction, sparse_labels, normalize=True)
+        errors_rate = tf.metrics.mean(levenshtein)
+        mean_error_rate = tf.reduce_mean(levenshtein)
+        metrics['Error_Rate'] = errors_rate
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            tf.summary.scalar('Error_Rate', mean_error_rate)
+        with tf.name_scope('CTC'):
+            ctc_loss = tf.nn.ctc_loss(sparse_labels, logits, input_lengths, ignore_longer_outputs_than_inputs=True)
+            mean_loss = tf.reduce_mean(tf.truediv(ctc_loss, tf.to_float(input_lengths)))
+            loss = mean_loss
+    else:
+        loss = None
+
+    training_hooks = []
+
+    if mode == tf.estimator.ModeKeys.TRAIN:
+
+        opt = tf.train.AdamOptimizer(params['learning_rate'])
+        if params['grad_clip'] is None:
+            train_op = opt.minimize(loss, global_step=global_step)
+        else:
+            gradients, variables = zip(*opt.compute_gradients(loss))
+            gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
+            train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
+                                           global_step=global_step)
+    elif mode == tf.estimator.ModeKeys.EVAL:
+        train_op = None
+    else:
+        train_op = None
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        predictions = tf.sparse_to_dense(tf.to_int32(prediction.indices),
+                                         tf.to_int32(prediction.dense_shape),
+                                         tf.to_int32(prediction.values),
+                                         default_value=-1,
+                                         name="output")
+        export_outputs = {
+            tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: tf.estimator.export.PredictOutput(
+                predictions)}
+    else:
+        predictions = None
+        export_outputs = None
+    return tf.estimator.EstimatorSpec(
+        mode=mode,
+        eval_metric_ops=metrics,
+        predictions=predictions,
+        loss=loss,
+        training_hooks=training_hooks,
+        export_outputs=export_outputs,
+        train_op=train_op)
+
+
+class BaseOCR(tf.estimator.Estimator):
+    def __init__(
+            self,
+            params=None,
+            model_dir=None,
+            config=None,
+            warm_start_from=None
+    ):
+        def _model_fn(features, labels, mode, params, config):
+            return _model_fn(
+                features=features,
+                labels=labels,
+                mode=mode,
+                params=params,
+                config=config)
+
+        super(BaseOCR, self).__init__(
+            model_fn=_model_fn,
+            model_dir=model_dir,
+            config=config,
+            params=params,
+            warm_start_from=warm_start_from
+        )
