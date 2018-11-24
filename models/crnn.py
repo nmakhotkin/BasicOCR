@@ -88,7 +88,7 @@ def input_fn(params, is_training):
                         features.append(image)
                         if len(label)>maxlen:
                             maxlen = len(label)
-                        labels.append(label)
+                        labels.append(np.array(label,dtype=np.int32))
                     for i in range(len(labels)):
                         l = len(labels[i])
                         if l<maxlen:
