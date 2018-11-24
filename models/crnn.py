@@ -39,7 +39,7 @@ def get_str_labels(char_map, str, add_eos=True):
         if i >= 0:
             result.append(i)
     if add_eos:
-        result.append(len(char_map))
+        result.append(len(char_map)+1)
     return result
 
 

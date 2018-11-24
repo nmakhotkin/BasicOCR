@@ -235,7 +235,7 @@ def main():
         'epoch': args.epoch,
         'limit_train': args.limit_train,
         'max_target_seq_length':args.max_target_seq_length,
-        'num_labels':len(charset)+1,
+        'num_labels':len(charset)+2,
         'rnn_type':args.rnn_type,
         'beam_search_decoder': False,
         'grad_clip':args.grad_clip,
