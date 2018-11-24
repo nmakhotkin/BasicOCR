@@ -86,7 +86,7 @@ def input_fn(params, is_training):
                         label = get_str_labels(char_map,data[k,1])
                         features.append(image)
                         labels.append(label)
-                    yield (features,labels)
+                    yield (np.stack(features),np.stack(labels))
         ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
             tf.TensorShape([params['batch_size'],32,150,3]),
             tf.TensorShape([params['batch_size'],None])))
