@@ -72,6 +72,7 @@ def input_fn(params, is_training):
                         k = j*batch_size+i
                         image = PIL.Image.open('{}/{}.png'.format(params['data_set'],data[k,0]))
                         width, height = image.size
+                        logging.info("Width: {} Height: {}".format(width,height))
                         ration_w = max(width/150.0,1.0)
                         ration_h = max(height/32.0,1.0)
                         ratio = max(ration_h,ration_w)
@@ -79,11 +80,14 @@ def input_fn(params, is_training):
                             width = int(width/ratio)
                             height = int(height/ratio)
                             image = image.resize((width,height))
+                            w1, h1 = image.size
+                            logging.info("Resize Width: {} Height: {}".format(w1,h1))
                         image = np.asarray(image)
                         pw = max(0,150-image.shape[1])
                         ph = max(0,32-image.shape[0])
                         image = np.pad(image,((0,ph),(0,pw),(0,0)),'constant',constant_values=0)
                         image = image.astype(np.float32)/127.5-1
+                        logging.info("Text {}".format(data[k,1]))
                         label = get_str_labels(char_map,data[k,1])
                         features.append(image)
                         if len(label)>maxlen:
@@ -181,6 +185,7 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
     images = tf.transpose(features, [0, 2, 1, 3])
     if (mode == tf.estimator.ModeKeys.TRAIN or
             mode == tf.estimator.ModeKeys.EVAL):
+        tf.summary.image('image',features)
         idx = tf.where(tf.not_equal(labels, 0))
         sparse_labels = tf.SparseTensor(idx, tf.gather_nd(labels, idx),
                                         [params['batch_size'], params['max_target_seq_length']])
@@ -230,6 +235,7 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
 
     max_char_count = rnn_inputs.get_shape().as_list()[0]
     input_lengths = tf.zeros([params['batch_size']], dtype=tf.int32) + max_char_count
+    logging.info("InpuLengh {}".format(input_lengths.shape))
 
     if params['rnn_type'] == 'CudnnLSTM':
         rnn_output, rnn_state, new_states = _cudnn_lstm(mode, params, rnn_inputs)
@@ -270,12 +276,14 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
     if mode == tf.estimator.ModeKeys.TRAIN:
 
         opt = tf.train.AdamOptimizer(params['learning_rate'])
-        if params['grad_clip'] is None:
-            train_op = opt.minimize(loss, global_step=global_step)
-        else:
-            gradients, variables = zip(*opt.compute_gradients(loss))
-            gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
-            train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops)
+            if params['grad_clip'] is None:
+                train_op = opt.minimize(loss, global_step=global_step)
+            else:
+                gradients, variables = zip(*opt.compute_gradients(loss))
+                gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
+                train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
                                            global_step=global_step)
     elif mode == tf.estimator.ModeKeys.EVAL:
         train_op = None
