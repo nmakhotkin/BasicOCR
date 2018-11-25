@@ -72,7 +72,7 @@ def input_fn(params, is_training):
                         k = j*batch_size+i
                         image = PIL.Image.open('{}/{}.png'.format(params['data_set'],data[k,0]))
                         width, height = image.size
-                        logging.info("Width: {} Height: {}".format(width,height))
+                        #logging.info("Width: {} Height: {}".format(width,height))
                         ration_w = max(width/150.0,1.0)
                         ration_h = max(height/32.0,1.0)
                         ratio = max(ration_h,ration_w)
@@ -81,13 +81,13 @@ def input_fn(params, is_training):
                             height = int(height/ratio)
                             image = image.resize((width,height))
                             w1, h1 = image.size
-                            logging.info("Resize Width: {} Height: {}".format(w1,h1))
+                            #logging.info("Resize Width: {} Height: {}".format(w1,h1))
                         image = np.asarray(image)
                         pw = max(0,150-image.shape[1])
                         ph = max(0,32-image.shape[0])
                         image = np.pad(image,((0,ph),(0,pw),(0,0)),'constant',constant_values=0)
                         image = image.astype(np.float32)/127.5-1
-                        logging.info("Text {}".format(data[k,1]))
+                        #logging.info("Text {}".format(data[k,1]))
                         label = get_str_labels(char_map,data[k,1])
                         features.append(image)
                         if len(label)>maxlen:
@@ -182,7 +182,9 @@ def _cudnn_lstm(mode, params, rnn_inputs):
 
 def _crnn_model_fn(features, labels, mode, params=None, config=None):
     global_step = tf.train.get_or_create_global_step()
+    logging.info("Features {}".format(features.shape))
     images = tf.transpose(features, [0, 2, 1, 3])
+    logging.info("Images {}".format(images.shape))
     if (mode == tf.estimator.ModeKeys.TRAIN or
             mode == tf.estimator.ModeKeys.EVAL):
         tf.summary.image('image',features)
@@ -193,47 +195,57 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
 
     # 64 / 3 x 3 / 1 / 1
     conv1 = tf.layers.conv2d(inputs=images, filters=64, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+    logging.info("conv1 {}".format(conv1.shape))
 
     # 2 x 2 / 1
     pool1 = tf.layers.max_pooling2d(inputs=conv1, pool_size=[2, 2], strides=2)
+    logging.info("pool1 {}".format(pool1.shape))
 
     # 128 / 3 x 3 / 1 / 1
     conv2 = tf.layers.conv2d(inputs=pool1, filters=128, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
-
+    logging.info("conv2 {}".format(conv2.shape))
     # 2 x 2 / 1
     pool2 = tf.layers.max_pooling2d(inputs=conv2, pool_size=[2, 2], strides=2)
+    logging.info("pool2 {}".format(pool2.shape))
 
     # 256 / 3 x 3 / 1 / 1
     conv3 = tf.layers.conv2d(inputs=pool2, filters=256, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+    logging.info("conv3 {}".format(conv3.shape))
 
     # Batch normalization layer
     bnorm1 = tf.layers.batch_normalization(conv3)
 
     # 256 / 3 x 3 / 1 / 1
     conv4 = tf.layers.conv2d(inputs=bnorm1, filters=256, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+    logging.info("conv4 {}".format(conv4.shape))
 
     # 1 x 2 / 1
     pool3 = tf.layers.max_pooling2d(inputs=conv4, pool_size=[2, 2], strides=[1, 2], padding="same")
+    logging.info("pool3 {}".format(pool3.shape))
 
     # 512 / 3 x 3 / 1 / 1
     conv5 = tf.layers.conv2d(inputs=pool3, filters=512, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+    logging.info("conv5 {}".format(conv5.shape))
 
     # Batch normalization layer
     bnorm2 = tf.layers.batch_normalization(conv5)
 
     # 512 / 3 x 3 / 1 / 1
     conv6 = tf.layers.conv2d(inputs=bnorm2, filters=512, kernel_size=(3, 3), padding="same", activation=tf.nn.relu)
+    logging.info("conv6 {}".format(conv6.shape))
 
     # 1 x 2 / 2
     pool4 = tf.layers.max_pooling2d(inputs=conv6, pool_size=[2, 2], strides=[1, 2], padding="same")
-
+    logging.info("pool4 {}".format(pool4.shape))
     # 512 / 2 x 2 / 1 / 0
     conv7 = tf.layers.conv2d(inputs=pool4, filters=512, kernel_size=(2, 2), padding="valid", activation=tf.nn.relu)
+    logging.info("conv7 {}".format(conv7.shape))
 
     reshaped_cnn_output = tf.reshape(conv7, [params['batch_size'], -1, 512])
     rnn_inputs = tf.transpose(reshaped_cnn_output, perm=[1, 0, 2])
 
     max_char_count = rnn_inputs.get_shape().as_list()[0]
+    logging.info("max_char_count {}".format(max_char_count))
     input_lengths = tf.zeros([params['batch_size']], dtype=tf.int32) + max_char_count
     logging.info("InpuLengh {}".format(input_lengths.shape))
 
