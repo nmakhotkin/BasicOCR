@@ -105,7 +105,7 @@ def parse_args():
     parser.add_argument(
         '--save_summary_steps',
         type=int,
-        default=10,
+        default=100,
         help="Log summary every 'save_summary_steps' steps",
     )
     parser.add_argument(
@@ -117,7 +117,7 @@ def parse_args():
     parser.add_argument(
         '--save_checkpoints_steps',
         type=int,
-        default=100,
+        default=1000,
         help="Save checkpoints every 'save_checkpoints_steps' steps",
     )
     parser.add_argument(
@@ -129,13 +129,18 @@ def parse_args():
     parser.add_argument(
         '--log_step_count_steps',
         type=int,
-        default=10,
+        default=100,
         help='The frequency, in number of global steps, that the global step/sec and the loss will be logged during training.',
     )
     parser.add_argument(
         '--data_set',
         default=None,
         help='Location of training files or evaluation files',
+    )
+    parser.add_argument(
+        '--data_set_type',
+        default='synth-crop',
+        help='Dataset type',
     )
 
 
@@ -185,10 +190,10 @@ def train(mode, checkpoint_dir, params):
     )
     logging.info("Start %s mode", mode)
     if mode == 'train':
-        input_fn = crnn.input_fn(params, True)
+        input_fn = crnn.get_input_fn(params['data_set_type'])(params, True)
         net.train(input_fn=input_fn)
     elif mode == 'eval':
-        #train_fn = crnn.null_dataset()
+        train_fn = crnn.null_dataset()
         #train_spec = tf.estimator.TrainSpec(input_fn=train_fn)
         #eval_fn = crnn.eval_fn()
         #eval_spec = tf.estimator.EvalSpec(input_fn=eval_fn, steps=1, start_delay_secs=10, throttle_secs=10)
@@ -245,6 +250,7 @@ def main():
         'lstm_direction_type':args.lstm_direction_type,
         'charset':charset,
         'charset_file':args.charset_file,
+        'data_set_type':args.data_set_type,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):

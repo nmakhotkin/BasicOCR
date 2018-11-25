@@ -8,7 +8,7 @@ import logging
 import pandas as pd
 import PIL.Image
 import numpy as np
-
+import os
 import re
 
 
@@ -21,7 +21,7 @@ def read_charset(filename):
             if m is None:
                 logging.info('incorrect charset file. line #{}: {}'.format(i, line))
                 continue
-            code = int(m.group(1))+1
+            code = int(m.group(1)) + 1
             char = m.group(2)
             if char == '<nul>':
                 continue
@@ -39,7 +39,7 @@ def get_str_labels(char_map, v, add_eos=True):
         if i >= 0:
             result.append(i)
     if add_eos:
-        result.append(len(char_map)+1)
+        result.append(len(char_map) + 1)
     return result
 
 
@@ -50,16 +50,86 @@ def null_dataset():
     return _input_fn
 
 
+def get_input_fn(dataset_type):
+    if dataset_type == 'synth-crop':
+        return input_fn
+    else:
+        return generated_input_fn
+
+
+def generated_input_fn(params, is_training):
+    char_map = params['charset']
+    batch_size = params['batch_size']
+    inputs = []
+    for img_file in glob.iglob(params['data_set'] + '/*.jpg'):
+        name = os.path.basename(img_file)
+        names = name.split('_')
+        if len(names) > 1:
+            label = get_str_labels(char_map, names[0])
+            if len(label) < 2:
+                continue
+            inputs.append([img_file, names[0]])
+
+    inputs = sorted(inputs, key=lambda row: row[0])
+    input_size = len(inputs)
+    logging.info('Dataset size {}'.format(input_size))
+
+    def _input_fn():
+        dataset = tf.data.Dataset.from_tensor_slices(inputs)
+        shuffle_size = input_size
+        if is_training:
+            logging.info("Shuffle by %d", shuffle_size)
+            if shuffle_size == 0:
+                shuffle_size = 10
+            dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(shuffle_size))
+
+        def _features_labels(images, labels):
+            return images, labels
+
+        def _decode(filename_label):
+            filename = str(filename_label[0], encoding='UTF-8')
+            label = str(filename_label[1], encoding='UTF-8')
+            label = get_str_labels(char_map, label)
+            image = PIL.Image.open(filename)
+            width, height = image.size
+            ration_w = max(width / 150.0, 1.0)
+            ration_h = max(height / 32.0, 1.0)
+            ratio = max(ration_h, ration_w)
+            if ratio > 1:
+                width = int(width / ratio)
+                height = int(height / ratio)
+                image = image.resize((width, height))
+            image = np.asarray(image)
+            pw = max(0, 150 - image.shape[1])
+            ph = max(0, 32 - image.shape[0])
+            image = np.pad(image, ((0, ph), (0, pw), (0, 0)), 'constant', constant_values=0)
+            image = image.astype(np.float32) / 127.5 - 1
+            return image, np.array(label, dtype=np.int32)
+
+        dataset = dataset.map(
+            lambda filename_label: tuple(tf.py_func(_decode, [filename_label], [tf.float32, tf.int32])),
+            num_parallel_calls=1)
+
+        dataset = dataset.padded_batch(batch_size, padded_shapes=([32, 150, 3], [None]))
+        dataset = dataset.map(_features_labels, num_parallel_calls=1)
+        dataset = dataset.prefetch(2)
+        return dataset
+
+    return _input_fn
+
+
 def input_fn(params, is_training):
     char_map = params['charset']
-    labels = pd.read_csv(params['data_set'] + '/labels.csv', converters={'text': str},na_values=[], keep_default_na=False)
+    labels = pd.read_csv(params['data_set'] + '/labels.csv', converters={'text': str}, na_values=[],
+                         keep_default_na=False)
     limit = params['limit_train']
-    if limit is None or limit<1:
+    if limit is None or limit < 1:
         alldata = labels.iloc[:].values
     else:
         alldata = labels.iloc[:limit].values
     batch_size = params['batch_size']
     count = len(alldata) // batch_size
+
     def _input_fn():
         def _gen():
             for _ in range(params['epoch']):
@@ -69,46 +139,47 @@ def input_fn(params, is_training):
                     features = []
                     labels = []
                     for i in range(batch_size):
-                        k = j*batch_size+i
-                        image = PIL.Image.open('{}/{}.png'.format(params['data_set'],data[k,0]))
+                        k = j * batch_size + i
+                        image = PIL.Image.open('{}/{}.png'.format(params['data_set'], data[k, 0]))
                         width, height = image.size
-                        #logging.info("Width: {} Height: {}".format(width,height))
-                        ration_w = max(width/150.0,1.0)
-                        ration_h = max(height/32.0,1.0)
-                        ratio = max(ration_h,ration_w)
-                        if ratio>1:
-                            width = int(width/ratio)
-                            height = int(height/ratio)
-                            image = image.resize((width,height))
+                        # logging.info("Width: {} Height: {}".format(width,height))
+                        ration_w = max(width / 150.0, 1.0)
+                        ration_h = max(height / 32.0, 1.0)
+                        ratio = max(ration_h, ration_w)
+                        if ratio > 1:
+                            width = int(width / ratio)
+                            height = int(height / ratio)
+                            image = image.resize((width, height))
                             w1, h1 = image.size
-                            #logging.info("Resize Width: {} Height: {}".format(w1,h1))
+                            # logging.info("Resize Width: {} Height: {}".format(w1,h1))
                         image = np.asarray(image)
-                        pw = max(0,150-image.shape[1])
-                        ph = max(0,32-image.shape[0])
-                        image = np.pad(image,((0,ph),(0,pw),(0,0)),'constant',constant_values=0)
-                        image = image.astype(np.float32)/127.5-1
-                        #logging.info("Text {}".format(data[k,1]))
-                        label = get_str_labels(char_map,data[k,1])
+                        pw = max(0, 150 - image.shape[1])
+                        ph = max(0, 32 - image.shape[0])
+                        image = np.pad(image, ((0, ph), (0, pw), (0, 0)), 'constant', constant_values=0)
+                        image = image.astype(np.float32) / 127.5 - 1
+                        # logging.info("Text {}".format(data[k,1]))
+                        label = get_str_labels(char_map, data[k, 1])
                         features.append(image)
-                        if len(label)>maxlen:
+                        if len(label) > maxlen:
                             maxlen = len(label)
-                        labels.append(np.array(label,dtype=np.int32))
+                        labels.append(np.array(label, dtype=np.int32))
                     for i in range(len(labels)):
                         l = len(labels[i])
-                        if l<maxlen:
-                            labels[i] = np.pad(labels[i],(0,maxlen-l),'constant',constant_values=0)
+                        if l < maxlen:
+                            labels[i] = np.pad(labels[i], (0, maxlen - l), 'constant', constant_values=0)
 
-                    yield (np.stack(features),np.stack(labels))
+                    yield (np.stack(features), np.stack(labels))
+
         ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
-            tf.TensorShape([params['batch_size'],32,150,3]),
-            tf.TensorShape([params['batch_size'],None])))
+            tf.TensorShape([params['batch_size'], 32, 150, 3]),
+            tf.TensorShape([params['batch_size'], None])))
         ds = ds.prefetch(4)
         return ds
+
     return _input_fn
 
 
 def _basic_lstm(mode, params, rnn_inputs):
-
     with tf.variable_scope('LSTM'):
         layers_list = []
         for _ in range(params['num_layers']):
@@ -187,7 +258,7 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
     logging.info("Images {}".format(images.shape))
     if (mode == tf.estimator.ModeKeys.TRAIN or
             mode == tf.estimator.ModeKeys.EVAL):
-        tf.summary.image('image',features)
+        tf.summary.image('image', features)
         idx = tf.where(tf.not_equal(labels, 0))
         sparse_labels = tf.SparseTensor(idx, tf.gather_nd(labels, idx),
                                         [params['batch_size'], params['max_target_seq_length']])
@@ -296,7 +367,7 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
                 gradients, variables = zip(*opt.compute_gradients(loss))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
                 train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
-                                           global_step=global_step)
+                                               global_step=global_step)
     elif mode == tf.estimator.ModeKeys.EVAL:
         train_op = None
     else:
