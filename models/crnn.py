@@ -254,6 +254,8 @@ def _cudnn_lstm(mode, params, rnn_inputs):
 def _crnn_model_fn(features, labels, mode, params=None, config=None):
     global_step = tf.train.get_or_create_global_step()
     logging.info("Features {}".format(features.shape))
+    features = tf.reshape(features, [params['batch_size'],32,150,3])
+    labels = tf.reshape(labels, [params['batch_size'],-1])
     images = tf.transpose(features, [0, 2, 1, 3])
     logging.info("Images {}".format(images.shape))
     if (mode == tf.estimator.ModeKeys.TRAIN or
