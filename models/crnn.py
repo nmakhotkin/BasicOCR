@@ -277,7 +277,7 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
 
         opt = tf.train.AdamOptimizer(params['learning_rate'])
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops)
+        with tf.control_dependencies(update_ops):
             if params['grad_clip'] is None:
                 train_op = opt.minimize(loss, global_step=global_step)
             else:
