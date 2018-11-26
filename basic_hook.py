@@ -49,7 +49,7 @@ def preprocess(inputs):
 
 
 def norm_image(im, infer_height, infer_width):
-    w, h, _ = im.size
+    w, h = im.size
     ration_w = max(w / infer_width, 1.0)
     ration_h = max(h / infer_height, 1.0)
     ratio = max(ration_h, ration_w)
