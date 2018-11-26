@@ -38,10 +38,9 @@ def init_hook(**params):
     chrset_index = charset
     LOG.info("Init hooks")
 
-def preprocess(inputs, **kwargs):
-    LOG.info('KW: {}'.format(kwargs))
+def preprocess(inputs):
     LOG.info('inputs: {}'.format(inputs))
-    image = inputs['image'][0]
+    image = inputs['images'][0]
     image = PIL.Image.open(io.BytesIO(image))
     resized_im = norm_image(image,32,320)
     return {
