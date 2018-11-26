@@ -60,6 +60,7 @@ def get_input_fn(dataset_type):
 
 
 def full_generated_input_fn(params, is_training):
+    logging.info('Use full generated')
     max_width = params['max_width']
     char_map = params['charset']
     batch_size = params['batch_size']
