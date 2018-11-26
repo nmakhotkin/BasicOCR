@@ -270,7 +270,7 @@ def main():
         'max_target_seq_length':args.max_target_seq_length,
         'num_labels':len(charset)+2,
         'rnn_type':args.rnn_type,
-        'beam_search_decoder': False,
+        'beam_search_decoder': args.export,
         'grad_clip':args.grad_clip,
         'hidden_size':args.hidden_size,
         'num_layers':args.num_layers,
