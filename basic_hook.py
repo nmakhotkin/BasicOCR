@@ -33,8 +33,7 @@ def read_charset(filename):
 def init_hook(**params):
     LOG.info("Init hooks {}".format(params))
     model_path = params['model_path']
-    base_path = os.path.dirname(model_path)
-    charset,_ = read_charset(os.path.join(base_path,'charset.txt'))
+    charset,_ = read_charset(os.path.join(model_path,'charset.txt'))
     global chrset_index
     chrset_index = charset
     LOG.info("Init hooks")
