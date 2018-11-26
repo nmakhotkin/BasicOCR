@@ -53,11 +53,79 @@ def null_dataset():
 def get_input_fn(dataset_type):
     if dataset_type == 'synth-crop':
         return input_fn
+    if dataset_type == 'full-generated':
+        return full_generated_input_fn
     else:
         return generated_input_fn
 
 
+def full_generated_input_fn(params, is_training):
+    max_width = params['max_width']
+    char_map = params['charset']
+    batch_size = params['batch_size']
+    inputs = []
+    with open(params['data_set']+'/labels.txt','r') as f:
+        for x in f:
+            x = x.rstrip()
+            ls = x.split(' ')
+            if len(ls)<2:
+                continue
+            img_name = params['data_set']+'/'+ls[0]
+            text = ' '.join(ls[1:])
+            label = get_str_labels(char_map, text)
+            if len(label) < 2:
+                continue
+            inputs.append([img_name,text])
+
+    inputs = sorted(inputs, key=lambda row: row[0])
+    input_size = len(inputs)
+    logging.info('Dataset size {}'.format(input_size))
+
+    def _input_fn():
+        dataset = tf.data.Dataset.from_tensor_slices(inputs)
+        shuffle_size = input_size
+        if is_training:
+            logging.info("Shuffle by %d", shuffle_size)
+            if shuffle_size == 0:
+                shuffle_size = 10
+            dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(shuffle_size))
+
+        def _features_labels(images, labels):
+            return images, labels
+
+        def _decode(filename_label):
+            filename = str(filename_label[0], encoding='UTF-8')
+            label = str(filename_label[1], encoding='UTF-8')
+            label = get_str_labels(char_map, label)
+            image = PIL.Image.open(filename)
+            width, height = image.size
+            ration_w = max(width / max_width, 1.0)
+            ration_h = max(height / 32.0, 1.0)
+            ratio = max(ration_h, ration_w)
+            if ratio > 1:
+                width = int(width / ratio)
+                height = int(height / ratio)
+                image = image.resize((width, height))
+            image = np.asarray(image)
+            pw = max(0, max_width - image.shape[1])
+            ph = max(0, 32 - image.shape[0])
+            image = np.pad(image, ((0, ph), (0, pw), (0, 0)), 'constant', constant_values=0)
+            image = image.astype(np.float32) / 127.5 - 1
+            return image, np.array(label, dtype=np.int32)
+
+        dataset = dataset.map(
+            lambda filename_label: tuple(tf.py_func(_decode, [filename_label], [tf.float32, tf.int32])),
+            num_parallel_calls=1)
+
+        dataset = dataset.padded_batch(batch_size, padded_shapes=([32, max_width, 3], [None]))
+        dataset = dataset.map(_features_labels, num_parallel_calls=1)
+        dataset = dataset.prefetch(2)
+        return dataset
+
+    return _input_fn
+
 def generated_input_fn(params, is_training):
+    max_width = params['max_width']
     char_map = params['charset']
     batch_size = params['batch_size']
     inputs = []
@@ -92,7 +160,7 @@ def generated_input_fn(params, is_training):
             label = get_str_labels(char_map, label)
             image = PIL.Image.open(filename)
             width, height = image.size
-            ration_w = max(width / 150.0, 1.0)
+            ration_w = max(width / max_width, 1.0)
             ration_h = max(height / 32.0, 1.0)
             ratio = max(ration_h, ration_w)
             if ratio > 1:
@@ -100,7 +168,7 @@ def generated_input_fn(params, is_training):
                 height = int(height / ratio)
                 image = image.resize((width, height))
             image = np.asarray(image)
-            pw = max(0, 150 - image.shape[1])
+            pw = max(0, max_width - image.shape[1])
             ph = max(0, 32 - image.shape[0])
             image = np.pad(image, ((0, ph), (0, pw), (0, 0)), 'constant', constant_values=0)
             image = image.astype(np.float32) / 127.5 - 1
@@ -110,7 +178,7 @@ def generated_input_fn(params, is_training):
             lambda filename_label: tuple(tf.py_func(_decode, [filename_label], [tf.float32, tf.int32])),
             num_parallel_calls=1)
 
-        dataset = dataset.padded_batch(batch_size, padded_shapes=([32, 150, 3], [None]))
+        dataset = dataset.padded_batch(batch_size, padded_shapes=([32, max_width, 3], [None]))
         dataset = dataset.map(_features_labels, num_parallel_calls=1)
         dataset = dataset.prefetch(2)
         return dataset
@@ -119,6 +187,7 @@ def generated_input_fn(params, is_training):
 
 
 def input_fn(params, is_training):
+    max_width = params['max_width']
     char_map = params['charset']
     labels = pd.read_csv(params['data_set'] + '/labels.csv', converters={'text': str}, na_values=[],
                          keep_default_na=False)
@@ -143,7 +212,7 @@ def input_fn(params, is_training):
                         image = PIL.Image.open('{}/{}.png'.format(params['data_set'], data[k, 0]))
                         width, height = image.size
                         # logging.info("Width: {} Height: {}".format(width,height))
-                        ration_w = max(width / 150.0, 1.0)
+                        ration_w = max(width / max_width, 1.0)
                         ration_h = max(height / 32.0, 1.0)
                         ratio = max(ration_h, ration_w)
                         if ratio > 1:
@@ -153,7 +222,7 @@ def input_fn(params, is_training):
                             w1, h1 = image.size
                             # logging.info("Resize Width: {} Height: {}".format(w1,h1))
                         image = np.asarray(image)
-                        pw = max(0, 150 - image.shape[1])
+                        pw = max(0, max_width - image.shape[1])
                         ph = max(0, 32 - image.shape[0])
                         image = np.pad(image, ((0, ph), (0, pw), (0, 0)), 'constant', constant_values=0)
                         image = image.astype(np.float32) / 127.5 - 1
@@ -171,7 +240,7 @@ def input_fn(params, is_training):
                     yield (np.stack(features), np.stack(labels))
 
         ds = tf.data.Dataset.from_generator(_gen, (tf.float32, tf.int32), (
-            tf.TensorShape([params['batch_size'], 32, 150, 3]),
+            tf.TensorShape([params['batch_size'], 32, max_width, 3]),
             tf.TensorShape([params['batch_size'], None])))
         ds = ds.prefetch(4)
         return ds
@@ -252,9 +321,10 @@ def _cudnn_lstm(mode, params, rnn_inputs):
 
 
 def _crnn_model_fn(features, labels, mode, params=None, config=None):
+    max_width = params['max_width']
     global_step = tf.train.get_or_create_global_step()
     logging.info("Features {}".format(features.shape))
-    features = tf.reshape(features, [params['batch_size'],32,150,3])
+    features = tf.reshape(features, [params['batch_size'],32,max_width,3])
     labels = tf.reshape(labels, [params['batch_size'],-1])
     images = tf.transpose(features, [0, 2, 1, 3])
     logging.info("Images {}".format(images.shape))

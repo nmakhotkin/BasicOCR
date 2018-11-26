@@ -121,6 +121,12 @@ def parse_args():
         help="Save checkpoints every 'save_checkpoints_steps' steps",
     )
     parser.add_argument(
+        '--max_width',
+        type=int,
+        default=150,
+        help="Max image width",
+    )
+    parser.add_argument(
         '--keep_checkpoint_max',
         type=int,
         default=5,
@@ -251,6 +257,7 @@ def main():
         'charset':charset,
         'charset_file':args.charset_file,
         'data_set_type':args.data_set_type,
+        'max_width':args.max_width,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):
