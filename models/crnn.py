@@ -322,6 +322,8 @@ def _cudnn_lstm(mode, params, rnn_inputs):
 
 
 def _crnn_model_fn(features, labels, mode, params=None, config=None):
+    if isinstance(features, dict):
+        features = features['images']
     max_width = params['max_width']
     global_step = tf.train.get_or_create_global_step()
     logging.info("Features {}".format(features.shape))

@@ -5,9 +5,7 @@ import logging
 import configparser
 import models.crnn as crnn
 import json
-import numpy as np
-import pickle
-import sys
+import shutil
 from mlboardclient.api import client
 
 mlboard = client.Client()
@@ -160,6 +158,8 @@ def parse_args():
                        help='Start in evaluation mode')
     group.add_argument('--test', dest='test', action='store_true',
                        help='Test mode')
+    group.add_argument('--export', dest='export', action='store_true',
+                       help='Export model')
     p_file = os.path.join(checkpoint_dir, 'parameters.ini')
     if tf.gfile.Exists(p_file):
         parameters = configparser.ConfigParser(allow_no_value=True)
@@ -171,6 +171,28 @@ def parse_args():
     print('\n*************************\n')
     return checkpoint_dir, args
 
+
+
+def export(checkpoint_dir,params):
+    conf = tf.estimator.RunConfig(
+        model_dir=checkpoint_dir,
+    )
+    feature_placeholders = {
+        'images': tf.placeholder(tf.float32, [params['batch_size'],32,params['max_width'],3], name='images'),
+    }
+    receiver = tf.estimator.export.build_raw_serving_input_receiver_fn(feature_placeholders,default_batch_size=params['batch_size'])
+    net = crnn.BaseOCR(
+        params=params,
+        model_dir=checkpoint_dir,
+        config=conf,
+    )
+    export_path = net.export_savedmodel(
+        checkpoint_dir,
+        receiver,
+    )
+    shutil.copyfile(params['charset_file'],os.path.join(export_path,'charset.txt'))
+    export_path = export_path.decode("utf-8")
+    client.update_task_info({'model_path': export_path})
 
 
 def train(mode, checkpoint_dir, params):
@@ -263,7 +285,11 @@ def main():
     if not tf.gfile.Exists(checkpoint_dir):
         tf.gfile.MakeDirs(checkpoint_dir)
 
+    if args.export:
+        export(checkpoint_dir,params)
+        return
     train(mode, checkpoint_dir, params)
+
 
 
 if __name__ == '__main__':
