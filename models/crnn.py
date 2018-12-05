@@ -233,6 +233,7 @@ def tf_input_fn(params, is_training):
             img = tf.cast(img,tf.float32) / 127.5 - 1
             label = tf.sparse_tensor_to_dense(res['image/unpadded_class'])
             logging.info("Label: {}".format(label))
+            label  = tf.reshape(label,[-1])
             label = tf.cast(label,tf.int32)+1
             logging.info("Label: {}".format(label))
             label = tf.pad(label,[0,1],constant_values=len(char_map) + 1)
