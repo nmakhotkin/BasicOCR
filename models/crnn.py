@@ -55,6 +55,8 @@ def get_input_fn(dataset_type):
         return input_fn
     if dataset_type == 'full-generated':
         return full_generated_input_fn
+    if dataset_type == 'tf-record':
+        return tf_input_fn
     else:
         return generated_input_fn
 
@@ -186,6 +188,58 @@ def generated_input_fn(params, is_training):
 
     return _input_fn
 
+def tf_input_fn(params, is_training):
+    max_width = params['max_width']
+    char_map = params['charset']
+
+    batch_size = params['batch_size']
+
+    datasets_files = []
+    for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
+        datasets_files.append(tf_file)
+
+    def _input_fn():
+        ds = tf.data.TFRecordDataset(datasets_files)
+        def _parser(example):
+            zero = tf.zeros([1], dtype=tf.int64)
+            features = {
+                'image/encoded':
+                    tf.FixedLenFeature((), tf.string, default_value=''),
+                'height':
+                    tf.FixedLenFeature([1], tf.int64, default_value=zero),
+                'width':
+                    tf.FixedLenFeature([1], tf.int64, default_value=zero),
+                'image/text':
+                    tf.FixedLenFeature([1], tf.string, default_value=''),
+                'image/unpadded_class':
+                    tf.VarLenFeature(tf.int64),
+            }
+            res = tf.parse_single_example(example,features)
+            img = tf.image.decode_png(res['image/encoded'],channels=3)
+            original_w = tf.cast(res['width'][0],tf.int32)
+            original_h = tf.cast(res['height'][0],tf.int32)
+            img = tf.reshape(img, [original_h,original_w,3])
+            w = tf.cast(original_w, tf.float32)
+            h = tf.cast(original_h, tf.float32)
+            ratio_w = tf.maximum(w / max_width, 1.0)
+            ratio_h = tf.maximum(h / 32.0, 1.0)
+            ratio = tf.maximum(ratio_w, ratio_h)
+            nw = tf.cast(w / ratio, tf.int32)
+            nh = tf.cast(h / ratio, tf.int32)
+            img = tf.image.resize_images(img, [nh, nw])
+            padw = tf.maximum(0, int(max_width) - nw)
+            padh = tf.maximum(0, 32 - nh)
+            img = tf.image.pad_to_bounding_box(img, 0, 0, nh + padh, nw + padw)
+            img = img.astype(np.float32) / 127.5 - 1
+            label = tf.cast(res['image/unpadded_class'],tf.int32)+1
+            label = tf.pad(label,[0,1],constant_values=len(char_map) + 1)
+            return img,label
+        ds = ds.map(_parser)
+        ds = ds.apply(tf.contrib.data.shuffle_and_repeat(1000))
+        ds = ds.batch(batch_size)
+        return ds
+
+    return _input_fn
 
 def input_fn(params, is_training):
     max_width = params['max_width']
