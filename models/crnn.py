@@ -231,8 +231,12 @@ def tf_input_fn(params, is_training):
             padh = tf.maximum(0, 32 - nh)
             img = tf.image.pad_to_bounding_box(img, 0, 0, nh + padh, nw + padw)
             img = tf.cast(img,tf.float32) / 127.5 - 1
-            label = tf.cast(res['image/unpadded_class'],tf.int32)+1
+            label = tf.sparse_tensor_to_dense(res['image/unpadded_class'])
+            logging.info("Label: {}".format(label))
+            label = tf.cast(label,tf.int32)+1
+            logging.info("Label: {}".format(label))
             label = tf.pad(label,[0,1],constant_values=len(char_map) + 1)
+            logging.info("Label: {}".format(label))
             return img,label
         ds = ds.map(_parser)
         ds = ds.apply(tf.contrib.data.shuffle_and_repeat(1000))
