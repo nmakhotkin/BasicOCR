@@ -241,7 +241,7 @@ def tf_input_fn(params, is_training):
             return img,label
         ds = ds.map(_parser)
         ds = ds.apply(tf.contrib.data.shuffle_and_repeat(1000))
-        ds = ds.batch(batch_size)
+        ds = ds.padded_batch(batch_size,padded_shapes=([32,max_width,3],[None]))
         return ds
 
     return _input_fn
