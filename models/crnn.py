@@ -230,7 +230,7 @@ def tf_input_fn(params, is_training):
             padw = tf.maximum(0, int(max_width) - nw)
             padh = tf.maximum(0, 32 - nh)
             img = tf.image.pad_to_bounding_box(img, 0, 0, nh + padh, nw + padw)
-            img = img.astype(np.float32) / 127.5 - 1
+            img = tf.cast(img,tf.float32) / 127.5 - 1
             label = tf.cast(res['image/unpadded_class'],tf.int32)+1
             label = tf.pad(label,[0,1],constant_values=len(char_map) + 1)
             return img,label
