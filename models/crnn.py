@@ -67,18 +67,18 @@ def full_generated_input_fn(params, is_training):
     char_map = params['charset']
     batch_size = params['batch_size']
     inputs = []
-    with open(params['data_set']+'/labels.txt','r') as f:
+    with open(params['data_set'] + '/labels.txt', 'r') as f:
         for x in f:
             x = x.rstrip()
             ls = x.split(' ')
-            if len(ls)<2:
+            if len(ls) < 2:
                 continue
-            img_name = params['data_set']+'/'+ls[0]
+            img_name = params['data_set'] + '/' + ls[0]
             text = ' '.join(ls[1:])
             label = get_str_labels(char_map, text)
             if len(label) < 2:
                 continue
-            inputs.append([img_name,text])
+            inputs.append([img_name, text])
 
     inputs = sorted(inputs, key=lambda row: row[0])
     input_size = len(inputs)
@@ -126,6 +126,7 @@ def full_generated_input_fn(params, is_training):
         return dataset
 
     return _input_fn
+
 
 def generated_input_fn(params, is_training):
     max_width = params['max_width']
@@ -188,6 +189,7 @@ def generated_input_fn(params, is_training):
 
     return _input_fn
 
+
 def tf_input_fn(params, is_training):
     max_width = params['max_width']
     char_map = params['charset']
@@ -199,7 +201,8 @@ def tf_input_fn(params, is_training):
         datasets_files.append(tf_file)
 
     def _input_fn():
-        ds = tf.data.TFRecordDataset(datasets_files)
+        ds = tf.data.TFRecordDataset(datasets_files, buffer_size=256 * 1024 * 1024)
+
         def _parser(example):
             zero = tf.zeros([1], dtype=tf.int64)
             features = {
@@ -214,11 +217,11 @@ def tf_input_fn(params, is_training):
                 'image/unpadded_class':
                     tf.VarLenFeature(tf.int64),
             }
-            res = tf.parse_single_example(example,features)
-            img = tf.image.decode_png(res['image/encoded'],channels=3)
-            original_w = tf.cast(res['width'][0],tf.int32)
-            original_h = tf.cast(res['height'][0],tf.int32)
-            img = tf.reshape(img, [original_h,original_w,3])
+            res = tf.parse_single_example(example, features)
+            img = tf.image.decode_png(res['image/encoded'], channels=3)
+            original_w = tf.cast(res['width'][0], tf.int32)
+            original_h = tf.cast(res['height'][0], tf.int32)
+            img = tf.reshape(img, [original_h, original_w, 3])
             w = tf.cast(original_w, tf.float32)
             h = tf.cast(original_h, tf.float32)
             ratio_w = tf.maximum(w / max_width, 1.0)
@@ -230,21 +233,23 @@ def tf_input_fn(params, is_training):
             padw = tf.maximum(0, int(max_width) - nw)
             padh = tf.maximum(0, 32 - nh)
             img = tf.image.pad_to_bounding_box(img, 0, 0, nh + padh, nw + padw)
-            img = tf.cast(img,tf.float32) / 127.5 - 1
+            img = tf.cast(img, tf.float32) / 127.5 - 1
             label = tf.sparse_tensor_to_dense(res['image/unpadded_class'])
             logging.info("Label: {}".format(label))
-            label  = tf.reshape(label,[-1])
-            label = tf.cast(label,tf.int32)+1
+            label = tf.reshape(label, [-1])
+            label = tf.cast(label, tf.int32) + 1
             logging.info("Label: {}".format(label))
-            label = tf.pad(label,[[0,1]],constant_values=len(char_map) + 1)
+            label = tf.pad(label, [[0, 1]], constant_values=len(char_map) + 1)
             logging.info("Label: {}".format(label))
-            return img,label
+            return img, label
+
         ds = ds.map(_parser)
         ds = ds.apply(tf.contrib.data.shuffle_and_repeat(1000))
-        ds = ds.padded_batch(batch_size,padded_shapes=([32,max_width,3],[None]))
+        ds = ds.padded_batch(batch_size, padded_shapes=([32, max_width, 3], [None]))
         return ds
 
     return _input_fn
+
 
 def input_fn(params, is_training):
     max_width = params['max_width']
@@ -386,12 +391,12 @@ def _crnn_model_fn(features, labels, mode, params=None, config=None):
     max_width = params['max_width']
     global_step = tf.train.get_or_create_global_step()
     logging.info("Features {}".format(features.shape))
-    features = tf.reshape(features, [params['batch_size'],32,max_width,3])
+    features = tf.reshape(features, [params['batch_size'], 32, max_width, 3])
     images = tf.transpose(features, [0, 2, 1, 3])
     logging.info("Images {}".format(images.shape))
     if (mode == tf.estimator.ModeKeys.TRAIN or
             mode == tf.estimator.ModeKeys.EVAL):
-        labels = tf.reshape(labels, [params['batch_size'],-1])
+        labels = tf.reshape(labels, [params['batch_size'], -1])
         tf.summary.image('image', features)
         idx = tf.where(tf.not_equal(labels, 0))
         sparse_labels = tf.SparseTensor(idx, tf.gather_nd(labels, idx),
