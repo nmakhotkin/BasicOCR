@@ -236,7 +236,7 @@ def tf_input_fn(params, is_training):
             label  = tf.reshape(label,[-1])
             label = tf.cast(label,tf.int32)+1
             logging.info("Label: {}".format(label))
-            label = tf.pad(label,[0,1],constant_values=len(char_map) + 1)
+            label = tf.pad(label,[[0,1]],constant_values=len(char_map) + 1)
             logging.info("Label: {}".format(label))
             return img,label
         ds = ds.map(_parser)
