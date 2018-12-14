@@ -220,8 +220,8 @@ def tf_input_fn(params, is_training):
             }
             res = tf.parse_single_example(example, features)
             img = tf.image.decode_png(res['image/encoded'], channels=3)
-            original_w = tf.cast(res['width'][0], tf.int32)
-            original_h = tf.cast(res['height'][0], tf.int32)
+            original_w = tf.cast(res['image/width'][0], tf.int32)
+            original_h = tf.cast(res['image/height'][0], tf.int32)
             img = tf.reshape(img, [original_h, original_w, 3])
             w = tf.maximum(tf.cast(original_w, tf.float32),1.0)
             h = tf.maximum(tf.cast(original_h, tf.float32),1.0)
@@ -235,7 +235,7 @@ def tf_input_fn(params, is_training):
             padh = tf.maximum(0, 32 - nh)
             img = tf.image.pad_to_bounding_box(img, 0, 0, nh + padh, nw + padw)
             img = tf.cast(img, tf.float32) / 127.5 - 1
-            label = tf.sparse_tensor_to_dense(res['image/unpadded_class'])
+            label = tf.sparse_tensor_to_dense(res['image/class'])
             logging.info("Label: {}".format(label))
             label = tf.reshape(label, [-1])
             label = tf.cast(label, tf.int32)
