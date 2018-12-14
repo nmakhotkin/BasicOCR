@@ -96,11 +96,6 @@ def parse_args():
         help='Epoch to trian',
     )
     parser.add_argument(
-        '--charset_file',
-        default='testdata/custom_charset.txt',
-        help='Charset file',
-    )
-    parser.add_argument(
         '--save_summary_steps',
         type=int,
         default=100,
@@ -252,7 +247,7 @@ def main():
                 'task': {'type': 'evaluator', 'index': 0}
             })
 
-    _,charset = crnn.read_charset(args.charset_file)
+    _,charset = crnn.read_charset()
     logging.info("Charset: {}".format(charset))
     logging.info("NumClasses: {}".format(len(charset)))
     params = {
@@ -268,7 +263,7 @@ def main():
         'epoch': args.epoch,
         'limit_train': args.limit_train,
         'max_target_seq_length':args.max_target_seq_length,
-        'num_labels':len(charset)+2,
+        'num_labels':len(charset),
         'rnn_type':args.rnn_type,
         'beam_search_decoder': args.export,
         'grad_clip':args.grad_clip,
@@ -277,7 +272,6 @@ def main():
         'output_keep_prob':args.output_keep_prob,
         'lstm_direction_type':args.lstm_direction_type,
         'charset':charset,
-        'charset_file':args.charset_file,
         'data_set_type':args.data_set_type,
         'max_width':args.max_width,
     }

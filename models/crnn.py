@@ -11,30 +11,37 @@ import numpy as np
 import os
 import re
 
+ENGLISH_CHAR_MAP = [
+    '#',
+    # Alphabet normal
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '0','1','2','3','4','5','6','7','8','9',
+    '-',':','(',')','.',',','/'
+    # Apostrophe only for specific cases (eg. : O'clock)
+    "'",
+    " ",
+    # "end of sentence" character for CTC algorithm
+    '_'
+]
 
-def read_charset(filename):
-    pattern = re.compile(r'(\d+)\t(.+)')
+def read_charset():
     charset = {}
-    with tf.gfile.GFile(filename) as f:
-        for i, line in enumerate(f):
-            m = pattern.match(line)
-            if m is None:
-                logging.info('incorrect charset file. line #{}: {}'.format(i, line))
-                continue
-            code = int(m.group(1)) + 1
-            char = m.group(2)
-            if char == '<nul>':
-                continue
-            charset[code] = char
-        inv_charset = {}
-        for k, v in charset.items():
-            inv_charset[v] = k
-        return charset, inv_charset
+    inv_charset = {}
+    for i,v in enumerate(ENGLISH_CHAR_MAP):
+        charset[i] = v
+        inv_charset[v] = i
+
+    return charset, inv_charset
 
 
 def get_str_labels(char_map, v, add_eos=True):
+    v = v.strip()
+    v = v.lower()
     result = []
     for t in v:
+        if t == '#' or t=='_':
+            continue
         i = char_map.get(t, -1)
         if i >= 0:
             result.append(i)
@@ -192,14 +199,10 @@ def generated_input_fn(params, is_training):
 
 def tf_input_fn(params, is_training):
     max_width = params['max_width']
-    char_map = params['charset']
-
     batch_size = params['batch_size']
-
     datasets_files = []
     for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
         datasets_files.append(tf_file)
-
     def _input_fn():
         ds = tf.data.TFRecordDataset(datasets_files, buffer_size=256 * 1024 * 1024)
 
@@ -208,13 +211,11 @@ def tf_input_fn(params, is_training):
             features = {
                 'image/encoded':
                     tf.FixedLenFeature((), tf.string, default_value=''),
-                'height':
+                'image/height':
                     tf.FixedLenFeature([1], tf.int64, default_value=zero),
-                'width':
+                'image/width':
                     tf.FixedLenFeature([1], tf.int64, default_value=zero),
-                'image/text':
-                    tf.FixedLenFeature([1], tf.string, default_value=''),
-                'image/unpadded_class':
+                'image/class':
                     tf.VarLenFeature(tf.int64),
             }
             res = tf.parse_single_example(example, features)
@@ -237,9 +238,7 @@ def tf_input_fn(params, is_training):
             label = tf.sparse_tensor_to_dense(res['image/unpadded_class'])
             logging.info("Label: {}".format(label))
             label = tf.reshape(label, [-1])
-            label = tf.cast(label, tf.int32) + 1
-            logging.info("Label: {}".format(label))
-            label = tf.pad(label, [[0, 1]], constant_values=len(char_map) + 1)
+            label = tf.cast(label, tf.int32)
             logging.info("Label: {}".format(label))
             return img, label
 
