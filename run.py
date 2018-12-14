@@ -186,7 +186,6 @@ def export(checkpoint_dir,params):
         receiver,
     )
     export_path = export_path.decode("utf-8")
-    shutil.copyfile(params['charset_file'],os.path.join(export_path,'charset.txt'))
     client.update_task_info({'model_path': export_path})
 
 
