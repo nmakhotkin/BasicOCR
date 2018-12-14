@@ -9,31 +9,35 @@ import tensorflow as tf
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
-chrset_index = {}
-def read_charset(filename):
-    pattern = re.compile(r'(\d+)\t(.+)')
-    charset = {}
-    with tf.gfile.GFile(filename) as f:
-        for i, line in enumerate(f):
-            m = pattern.match(line)
-            if m is None:
-                logging.info('incorrect charset file. line #{}: {}'.format(i, line))
-                continue
-            code = int(m.group(1)) + 1
-            char = m.group(2)
-            if char == '<nul>':
-                continue
-            charset[code] = char
-        inv_charset = {}
-        for k, v in charset.items():
-            inv_charset[v] = k
-        return charset, inv_charset
 
+ENGLISH_CHAR_MAP = [
+    '#',
+    # Alphabet normal
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '0','1','2','3','4','5','6','7','8','9',
+    '-',':','(',')','.',',','/'
+    # Apostrophe only for specific cases (eg. : O'clock)
+                            "'",
+    " ",
+    # "end of sentence" character for CTC algorithm
+    '_'
+]
+
+def read_charset():
+    charset = {}
+    inv_charset = {}
+    for i,v in enumerate(ENGLISH_CHAR_MAP):
+        charset[i] = v
+        inv_charset[v] = i
+
+    return charset, inv_charset
+
+chrset_index = {}
 
 def init_hook(**params):
     LOG.info("Init hooks {}".format(params))
-    model_path = params['model_path']
-    charset,_ = read_charset(os.path.join(model_path,'charset.txt'))
+    charset,_ = read_charset()
     global chrset_index
     chrset_index = charset
     LOG.info("Init hooks")
@@ -69,7 +73,7 @@ def postprocess(outputs):
     LOG.info('outputs: {}'.format(outputs))
     predictions = outputs['output']
     line = []
-    end_line = len(chrset_index)+2
+    end_line = len(chrset_index)-1
     for i in predictions[0]:
         if i == end_line:
             break;
