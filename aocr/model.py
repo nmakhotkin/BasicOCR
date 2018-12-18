@@ -46,6 +46,8 @@ def tf_input_fn(params, is_training):
             label = str(label, encoding='UTF-8')
             labels = []
             for c in label.lower():
+                if c == '_':
+                    continue
                 v = inv_charset.get(c, -1)
                 if v > 0:
                     labels.append(v)
