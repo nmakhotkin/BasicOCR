@@ -38,7 +38,7 @@ def tf_input_fn(params, is_training):
     datasets_files = []
     for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
         datasets_files.append(tf_file)
-
+    max_target_seq_length = params['max_target_seq_length']-1
     def _input_fn():
         ds = tf.data.TFRecordDataset(datasets_files, buffer_size=256 * 1024 * 1024)
 
@@ -51,6 +51,8 @@ def tf_input_fn(params, is_training):
                     labels.append(v)
             if len(labels)<1:
                 labels.append(inv_charset[' '])
+            if len(labels) > max_target_seq_length:
+                labels = labels[:max_target_seq_length]
             labels.append(1)
             return np.array(labels, dtype=np.int64)
 
