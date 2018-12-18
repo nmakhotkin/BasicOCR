@@ -49,6 +49,8 @@ def tf_input_fn(params, is_training):
                 v = inv_charset.get(c, -1)
                 if v > 0:
                     labels.append(v)
+            if len(labels)<1:
+                labels.append(inv_charset[' '])
             labels.append(1)
             return np.array(labels, dtype=np.int64)
 
