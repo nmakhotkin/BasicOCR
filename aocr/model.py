@@ -57,7 +57,6 @@ def tf_input_fn(params, is_training):
             if len(labels) > max_target_seq_length:
                 labels = labels[:max_target_seq_length]
             labels.append(1)
-            logging.info(labels)
             return np.array(labels, dtype=np.int64)
 
         def _parser(example):
@@ -103,27 +102,31 @@ def tf_input_fn(params, is_training):
 
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
-    global_step = tf.train.get_or_create_global_step()
     logging.info('Labels {}'.format(labels))
     start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
     train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
     output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
+    #output_embed = tf.reshape(train_output,[params['batch_size'],-1,1])
     output_embed = tf.contrib.layers.embed_sequence(
-        train_output, vocab_size=params['num_labels'], embed_dim=params['hidden_size'] / 2, scope='aocr')
-    with tf.variable_scope('aocr', reuse=True):
-        embeddings = tf.get_variable('embeddings')
+        train_output,
+        vocab_size=params['num_labels'],
+        embed_dim=512,
+        scope='aocr',
+        trainable=(mode == tf.estimator.ModeKeys.TRAIN))
+   #
     logging.info('output_embed {}'.format(output_embed))
     logging.info('output_lengths {}'.format(output_lengths))
-    forward_only = (mode != tf.estimator.ModeKeys.TRAIN)
-    cnn_model = CNN(features, not forward_only)
+    cnn_model = CNN(features, mode == tf.estimator.ModeKeys.TRAIN)
     conv_output = cnn_model.tf_output()
     logging.info('Conv output {}'.format(conv_output))
     if mode != tf.estimator.ModeKeys.TRAIN:
+        with tf.variable_scope('aocr', reuse=True):
+            embeddings = tf.get_variable('embeddings')
         helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
             embeddings, start_tokens=tf.to_int32(start_tokens), end_token=1)
     else:
         logging.info('TrainingHelper')
-        helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
+        helper = tf.contrib.seq2seq.TrainingHelper(tf.cast(output_embed,tf.float32), output_lengths)
 
     input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + int(params['max_width'] / 4)
     logging.info('input_lengths {}'.format(input_lengths))
@@ -155,10 +158,11 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
 
         opt = tf.train.AdamOptimizer(params['learning_rate'])
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        logging.info('Update ops {}'.format(update_ops))
         with tf.control_dependencies(update_ops):
-            if params['grad_clip'] is None:
-                logging.info("No clip")
-                train_op = opt.minimize(loss, global_step=global_step)
+            if params['grad_clip'] is not None:
+                logging.info("No clip {}".format(tf.train.get_global_step()))
+                train_op = opt.minimize(loss, global_step=tf.train.get_global_step())
             else:
                 logging.info("Clip")
                 gradients, variables = zip(*opt.compute_gradients(loss))
@@ -166,7 +170,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
                 logging.info('variables: {}'.format(variables))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
                 train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
-                                               global_step=global_step)
+                                               global_step=tf.train.get_global_step())
     else:
         train_op = None
         loss = None
