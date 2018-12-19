@@ -7,6 +7,7 @@ import tensorflow as tf
 import logging
 import glob
 import numpy as np
+from tensorflow.python.training import training_util
 
 ENGLISH_CHAR_MAP = [
     '',
@@ -107,12 +108,14 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
     train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
     output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
     #output_embed = tf.reshape(train_output,[params['batch_size'],-1,1])
-    output_embed = tf.contrib.layers.embed_sequence(
-        train_output,
-        vocab_size=params['num_labels'],
-        embed_dim=512,
-        scope='aocr',
-        trainable=(mode == tf.estimator.ModeKeys.TRAIN))
+    embeddings = tf.get_variable('embeddings', [params['num_labels'], 512],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
+    output_embed = tf.nn.embedding_lookup(embeddings,train_output)
+    #output_embed = tf.contrib.layers.embed_sequence(
+    #    train_output,
+    #    vocab_size=params['num_labels'],
+    #   embed_dim=512,
+    #    scope='aocr',
+    #    trainable=(mode == tf.estimator.ModeKeys.TRAIN))
    #
     logging.info('output_embed {}'.format(output_embed))
     logging.info('output_lengths {}'.format(output_lengths))
@@ -160,17 +163,18 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         logging.info('Update ops {}'.format(update_ops))
         with tf.control_dependencies(update_ops):
-            if params['grad_clip'] is not None:
+            if params['grad_clip'] is None:
                 logging.info("No clip {}".format(tf.train.get_global_step()))
-                train_op = opt.minimize(loss, global_step=tf.train.get_global_step())
+                train_op = opt.minimize(loss,global_step = tf.train.get_or_create_global_step())
             else:
                 logging.info("Clip")
                 gradients, variables = zip(*opt.compute_gradients(loss))
                 logging.info('gradients: {}'.format(gradients))
                 logging.info('variables: {}'.format(variables))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
-                train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
-                                               global_step=tf.train.get_global_step())
+                train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],global_step = tf.train.get_or_create_global_step())
+            sterp_inc = training_util._increment_global_step(1)  # pylint: disable=protected-access
+            train_op = tf.group(train_op,sterp_inc)
     else:
         train_op = None
         loss = None
