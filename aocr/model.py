@@ -39,8 +39,8 @@ def tf_input_fn(params, is_training):
     datasets_files = []
     for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
         datasets_files.append(tf_file)
-    max_target_seq_length = params['max_target_seq_length'] - 1
-
+    max_target_seq_length = params['max_target_seq_length']
+    max_target_seq_length_1 = max_target_seq_length-1
     def _input_fn():
         ds = tf.data.TFRecordDataset(datasets_files, buffer_size=256 * 1024 * 1024)
 
@@ -55,9 +55,12 @@ def tf_input_fn(params, is_training):
                     labels.append(v)
             if len(labels) < 1:
                 labels.append(inv_charset[' '])
-            if len(labels) > max_target_seq_length:
-                labels = labels[:max_target_seq_length]
+            if len(labels) > max_target_seq_length_1:
+                labels = labels[:max_target_seq_length_1]
             labels.append(1)
+            #if len(labels)<max_target_seq_length:
+            #    for _ in range(max_target_seq_length-len(labels)):
+            #        labels.append(1)
             return np.array(labels, dtype=np.int64)
 
         def _parser(example):
@@ -129,7 +132,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             embeddings, start_tokens=tf.to_int32(start_tokens), end_token=1)
     else:
         logging.info('TrainingHelper')
-        helper = tf.contrib.seq2seq.TrainingHelper(tf.cast(output_embed,tf.float32), output_lengths)
+        helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
 
     input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + int(params['max_width'] / 4)
     logging.info('input_lengths {}'.format(input_lengths))
@@ -173,8 +176,8 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
                 logging.info('variables: {}'.format(variables))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
                 train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],global_step = tf.train.get_or_create_global_step())
-            sterp_inc = training_util._increment_global_step(1)  # pylint: disable=protected-access
-            train_op = tf.group(train_op,sterp_inc)
+            #sterp_inc = training_util._increment_global_step(1)  # pylint: disable=protected-access
+            #train_op = tf.group(train_op,sterp_inc)
     else:
         train_op = None
         loss = None
