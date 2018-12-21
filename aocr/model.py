@@ -165,7 +165,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         opt = tf.train.AdamOptimizer(params['learning_rate'])
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         logging.info('Update ops {}'.format(update_ops))
-        with tf.control_dependencies(update_ops):
+        with tf.control_dependencies([]):
             if params['grad_clip'] is None:
                 logging.info("No clip {}".format(tf.train.get_global_step()))
                 train_op = opt.minimize(loss,global_step = tf.train.get_or_create_global_step())
