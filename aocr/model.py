@@ -106,66 +106,59 @@ def tf_input_fn(params, is_training):
 
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
-    logging.info('Labels {}'.format(labels))
-    start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
-    train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
-    output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
-    #output_embed = tf.reshape(train_output,[params['batch_size'],-1,1])
-    embeddings = tf.get_variable('embeddings', [params['num_labels'], 512],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
-    output_embed = tf.nn.embedding_lookup(embeddings,train_output)
-    #output_embed = tf.contrib.layers.embed_sequence(
-    #    train_output,
-    #    vocab_size=params['num_labels'],
-    #   embed_dim=512,
-    #    scope='aocr',
-    #    trainable=(mode == tf.estimator.ModeKeys.TRAIN))
-   #
-    logging.info('output_embed {}'.format(output_embed))
-    logging.info('output_lengths {}'.format(output_lengths))
     cnn_model = CNN(features, mode == tf.estimator.ModeKeys.TRAIN)
     conv_output = cnn_model.tf_output()
-    logging.info('Conv output {}'.format(conv_output))
-    if mode != tf.estimator.ModeKeys.TRAIN:
-        with tf.variable_scope('aocr', reuse=True):
-            embeddings = tf.get_variable('embeddings')
-        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-            embeddings, start_tokens=tf.to_int32(start_tokens), end_token=1)
-    else:
-        logging.info('TrainingHelper')
-        helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    logging.info('Update ops {}'.format(update_ops))
+    with tf.control_dependencies(update_ops):
+        logging.info('Conv output {}'.format(conv_output))
+        logging.info('Labels {}'.format(labels))
+        start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
+        train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
+        output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
+        #output_embed = tf.cast(tf.reshape(train_output,[params['batch_size'],-1,1]),tf.float32)
+        embeddings = tf.get_variable('embeddings', [params['num_labels'], 512],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
+        output_embed = tf.nn.embedding_lookup(embeddings,train_output)
+        logging.info('output_embed {}'.format(output_embed))
+        logging.info('output_lengths {}'.format(output_lengths))
+        if mode != tf.estimator.ModeKeys.TRAIN:
+            with tf.variable_scope('aocr', reuse=True):
+                embeddings = tf.get_variable('embeddings')
+            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+                embeddings, start_tokens=tf.to_int32(start_tokens), end_token=1)
+        else:
+            logging.info('TrainingHelper')
+            helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
 
-    input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + int(params['max_width'] / 4)
-    logging.info('input_lengths {}'.format(input_lengths))
-    attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
-        num_units=params['hidden_size'], memory=conv_output,
-        memory_sequence_length=input_lengths)
-    cell = tf.contrib.rnn.GRUCell(num_units=params['hidden_size'])
-    attn_cell = tf.contrib.seq2seq.AttentionWrapper(
-        cell, attention_mechanism, attention_layer_size=params['hidden_size'] / 2)
-    out_cell = tf.contrib.rnn.OutputProjectionWrapper(
-        attn_cell, params['num_labels']
-    )
-    decoder = tf.contrib.seq2seq.BasicDecoder(
-        cell=out_cell, helper=helper,
-        initial_state=out_cell.zero_state(
-            dtype=tf.float32, batch_size=params['batch_size']))
-    outputs = tf.contrib.seq2seq.dynamic_decode(
-        decoder=decoder, output_time_major=False,
-        impute_finished=True, maximum_iterations=params['max_target_seq_length']
-    )
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        predictions = None
-        export_outputs = None
-        train_outputs = outputs[0]
-        logging.info('train_outputs.rnn_output: {}'.format(train_outputs.rnn_output))
-        weights = tf.to_float(tf.not_equal(train_output[:, :-1], 1))
-        logging.info('weights: {}'.format(weights))
-        loss = tf.contrib.seq2seq.sequence_loss(train_outputs.rnn_output, labels, weights=weights)
-
-        opt = tf.train.AdamOptimizer(params['learning_rate'])
-        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        logging.info('Update ops {}'.format(update_ops))
-        with tf.control_dependencies([]):
+        input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + int(params['max_width'] / 4)
+        logging.info('input_lengths {}'.format(input_lengths))
+        attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
+            num_units=params['hidden_size'], memory=conv_output,
+            memory_sequence_length=input_lengths)
+        cell = tf.contrib.rnn.GRUCell(num_units=params['hidden_size'])
+        attn_cell = tf.contrib.seq2seq.AttentionWrapper(
+            cell, attention_mechanism, attention_layer_size=params['hidden_size'] / 2)
+        out_cell = tf.contrib.rnn.OutputProjectionWrapper(
+            attn_cell, params['num_labels']
+        )
+        decoder = tf.contrib.seq2seq.BasicDecoder(
+            cell=out_cell, helper=helper,
+            initial_state=out_cell.zero_state(
+                dtype=tf.float32, batch_size=params['batch_size']))
+        outputs = tf.contrib.seq2seq.dynamic_decode(
+            decoder=decoder, output_time_major=False,
+            impute_finished=True, maximum_iterations=params['max_target_seq_length']
+        )
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            predictions = None
+            export_outputs = None
+            train_outputs = outputs[0]
+            logging.info('train_outputs.rnn_output: {}'.format(train_outputs.rnn_output))
+            weights = tf.to_float(tf.not_equal(train_output[:, :-1], 1))
+            logging.info('weights: {}'.format(weights))
+            loss = tf.contrib.seq2seq.sequence_loss(train_outputs.rnn_output, labels, weights=weights)
+            tf.summary.image('input',features,2)
+            opt = tf.train.AdamOptimizer(params['learning_rate'])
             if params['grad_clip'] is None:
                 logging.info("No clip {}".format(tf.train.get_global_step()))
                 train_op = opt.minimize(loss,global_step = tf.train.get_or_create_global_step())
@@ -176,16 +169,13 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
                 logging.info('variables: {}'.format(variables))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
                 train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],global_step = tf.train.get_or_create_global_step())
-            #sterp_inc = training_util._increment_global_step(1)  # pylint: disable=protected-access
-            #train_op = tf.group(train_op,sterp_inc)
-    else:
-        train_op = None
-        loss = None
-        predictions = outputs[0].sample_id
-        export_outputs = {
-            tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: tf.estimator.export.PredictOutput(
-                predictions)}
-    logging.info("Train {}".format(train_op))
+        else:
+            train_op = None
+            loss = None
+            predictions = outputs[0].sample_id
+            export_outputs = {
+                tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: tf.estimator.export.PredictOutput(
+                    predictions)}
     return tf.estimator.EstimatorSpec(
         mode=mode,
         eval_metric_ops=None,

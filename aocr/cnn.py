@@ -129,10 +129,8 @@ class CNN(object):
         https://github.com/bgshih/crnn/blob/master/model/crnn_demo/config.lua
         :return:
         """
-        net = tf.add(input_tensor, (-128.0))
-        net = tf.multiply(net, (1/128.0))
 
-        net = ConvRelu(net, 64, (3, 3), 'conv_conv1')
+        net = ConvRelu(input_tensor, 64, (3, 3), 'conv_conv1')
         net = max_2x2pool(net, 'conv_pool1')
 
         net = ConvRelu(net, 128, (3, 3), 'conv_conv2')
