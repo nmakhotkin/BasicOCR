@@ -165,7 +165,7 @@ def _inception(freatures,encode_coordinate):
                 trainable=True):
             with slim.arg_scope(
                     [slim.batch_norm, slim.dropout], is_training=True):
-                _, end_points = inception_v3.inception_v3_base(
+                net, _ = inception_v3.inception_v3_base(
                     freatures,
                     scope='InceptionV3',
                     final_endpoint='Mixed_5d')
