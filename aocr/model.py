@@ -106,25 +106,33 @@ def tf_input_fn(params, is_training):
 
     return _input_fn
 
-def encode_coordinates_fn(self, net):
-    mparams = self._mparams['encode_coordinates_fn']
-    if mparams.enabled:
-        batch_size, h, w, _ = net.shape.as_list()
-        x, y = tf.meshgrid(tf.range(w), tf.range(h))
-        w_loc = slim.one_hot_encoding(x, num_classes=w)
-        h_loc = slim.one_hot_encoding(y, num_classes=h)
-        loc = tf.concat([h_loc, w_loc], 2)
-        loc = tf.tile(tf.expand_dims(loc, 0), [batch_size, 1, 1, 1])
-        return tf.concat([net, loc], 3)
-    else:
-        return net
+def encode_coordinates_fn(net):
+    _, h, w, _ = net.shape.as_list()
+    x, y = tf.meshgrid(tf.range(w), tf.range(h))
+    w_loc = slim.one_hot_encoding(x, num_classes=w)
+    h_loc = slim.one_hot_encoding(y, num_classes=h)
+    loc = tf.concat([h_loc, w_loc], 2)
+    loc = tf.tile(tf.expand_dims(loc, 0), tf.stack([tf.shape(net)[0], 1, 1, 1]))
+    return tf.concat([net, loc], 3)
 
-def _inception(freatures):
+def _inception(freatures,encode_coordinate):
     net, _ = inception.inception_v3_base(freatures, final_endpoint='Mixed_5d')
+    logging.info("Inception : {}".format(net))
+    if encode_coordinate:
+        net = encode_coordinates_fn(net)
+    batch_size, h, w, f = tf.unstack(tf.shape(net))
+    logging.info("Inception : {}".format(net))
+    net = tf.squeeze(net, axis=1)
+    return net
+
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
-    cnn_model = CNN(features, mode == tf.estimator.ModeKeys.TRAIN)
-    conv_output = cnn_model.tf_output()
+    if params['conv']=='inception':
+        conv_output = _inception(features,True)
+    else:
+        cnn_model = CNN(features, mode == tf.estimator.ModeKeys.TRAIN)
+        conv_output = cnn_model.tf_output()
+    _,t,_ = tf.unstack(tf.shape(conv_output))
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
         logging.info('Conv output {}'.format(conv_output))
@@ -134,7 +142,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
         output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
         #output_embed = tf.cast(tf.reshape(train_output,[params['batch_size'],-1,1]),tf.float32)
-        embeddings = tf.get_variable('embeddings', [params['num_labels'], params['num_labels']],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
+        #embeddings = tf.get_variable('embeddings', [params['num_labels'], params['num_labels']],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
         output_embed = tf.contrib.layers.one_hot_encoding(train_output,params['num_labels'])
         #output_embed = tf.nn.embedding_lookup(embeddings,train_output)
         logging.info('output_embed {}'.format(output_embed))
@@ -150,7 +158,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             logging.info('TrainingHelper')
             helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
 
-        input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + int(params['max_width'] / 4)
+        input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + tf.cast(t,tf.int64)
         logging.info('input_lengths {} count {}'.format(input_lengths,params['max_width']))
         attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
             num_units=params['hidden_size'], memory=conv_output,

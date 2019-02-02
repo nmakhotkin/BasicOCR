@@ -140,7 +140,18 @@ def parse_args():
         default='synth-crop',
         help='Dataset type',
     )
+    parser.add_argument(
+        '--conv',
+        default='cnn',
+        help='Encoder',
+    )
 
+    parser.add_argument(
+        '--warm_start_from',
+        type=str,
+        default=None,
+        help='Warm start',
+    )
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.set_defaults(worker=False)
@@ -208,6 +219,7 @@ def train(mode, checkpoint_dir, params):
         params=params,
         model_dir=checkpoint_dir,
         config=conf,
+        warm_start_from=params['warm_start_from']
     )
     logging.info("Start %s mode", mode)
     if mode == 'train':
@@ -272,6 +284,8 @@ def main():
         'charset':charset,
         'data_set_type':args.data_set_type,
         'max_width':args.max_width,
+        'conv': args.conv,
+        'warm_start_from': args.warm_start_from,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):
