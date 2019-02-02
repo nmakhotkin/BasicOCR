@@ -159,7 +159,6 @@ def _inception_v3_arg_scope(is_training=True,
             return sc
 
 def _inception(freatures,encode_coordinate):
-    net, _ = inception.inception_v3_base(freatures, final_endpoint='Mixed_5d')
     with slim.arg_scope(_inception_v3_arg_scope(is_training=True)):
         with slim.arg_scope(
                 [slim.conv2d, slim.fully_connected, slim.batch_norm],
