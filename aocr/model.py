@@ -10,6 +10,7 @@ import numpy as np
 from tensorflow.python.training import training_util
 from tensorflow.contrib.slim.nets import inception
 from tensorflow.contrib import slim
+from tensorflow.contrib.slim.python.slim.nets import inception_v3
 
 ENGLISH_CHAR_MAP = [
     '',
@@ -115,8 +116,60 @@ def encode_coordinates_fn(net):
     loc = tf.tile(tf.expand_dims(loc, 0), tf.stack([tf.shape(net)[0], 1, 1, 1]))
     return tf.concat([net, loc], 3)
 
+def _inception_v3_arg_scope(is_training=True,
+                            weight_decay=0.00004,
+                            stddev=0.1,
+                            batch_norm_var_collection='moving_vars'):
+    """Defines the default InceptionV3 arg scope.
+    Args:
+      is_training: Whether or not we're training the model.
+      weight_decay: The weight decay to use for regularizing the model.
+      stddev: The standard deviation of the trunctated normal weight initializer.
+      batch_norm_var_collection: The name of the collection for the batch norm
+        variables.
+    Returns:
+      An `arg_scope` to use for the inception v3 model.
+    """
+    batch_norm_params = {
+        'is_training': is_training,
+        # Decay for the moving averages.
+        'decay': 0.9997,
+        # epsilon to prevent 0s in variance.
+        'epsilon': 0.001,
+        # collection containing the moving mean and moving variance.
+        'variables_collections': {
+            'beta': None,
+            'gamma': None,
+            'moving_mean': [batch_norm_var_collection],
+            'moving_variance': [batch_norm_var_collection],
+        }
+    }
+    normalizer_fn = slim.batch_norm
+
+    # Set weight_decay for weights in Conv and FC layers.
+    with slim.arg_scope(
+            [slim.conv2d, slim.fully_connected],
+            weights_regularizer=slim.l2_regularizer(weight_decay)):
+        with slim.arg_scope(
+                [slim.conv2d],
+                weights_initializer=tf.truncated_normal_initializer(stddev=stddev),
+                activation_fn=tf.nn.relu6,
+                normalizer_fn=normalizer_fn,
+                normalizer_params=batch_norm_params) as sc:
+            return sc
+
 def _inception(freatures,encode_coordinate):
     net, _ = inception.inception_v3_base(freatures, final_endpoint='Mixed_5d')
+    with slim.arg_scope(_inception_v3_arg_scope(is_training=True)):
+        with slim.arg_scope(
+                [slim.conv2d, slim.fully_connected, slim.batch_norm],
+                trainable=True):
+            with slim.arg_scope(
+                    [slim.batch_norm, slim.dropout], is_training=True):
+                _, end_points = inception_v3.inception_v3_base(
+                    freatures,
+                    scope='InceptionV3',
+                    final_endpoint='Mixed_5d')
     logging.info("Inception : {}".format(net))
     if encode_coordinate:
         net = encode_coordinates_fn(net)
