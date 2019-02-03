@@ -297,13 +297,14 @@ class IniInceptionHook(session_run_hook.SessionRunHook):
         self._ops = None
 
     def begin(self):
-        None
+        if self._model_path is not None:
+            from tensorflow.python.training import saver as tf_saver
+            self._saver = tf_saver.Saver()
 
     def after_create_session(self, session, coord):
-        from tensorflow.python.training import saver as tf_saver
-        saver = tf_saver.Saver()
-        logging.info('Do  Init Inception')
-        saver.restore(session, self._model_path)
+        if self._model_path is not None:
+            logging.info('Do  Init Inception')
+            self._saver.restore(session, self._model_path)
 
     def before_run(self, run_context):  # pylint: disable=unused-argument
         return None
