@@ -298,13 +298,16 @@ class IniInceptionHook(session_run_hook.SessionRunHook):
 
     def begin(self):
         if self._model_path is not None:
-            from tensorflow.python.training import saver as tf_saver
-            self._saver = tf_saver.Saver()
+            inception_variables_dict = {
+                var.op.name: var
+                for var in slim.get_model_variables('InceptionV3')
+            }
+            self._init_fn_inception = slim.assign_from_checkpoint_fn(self._model_path, inception_variables_dict)
 
     def after_create_session(self, session, coord):
         if self._model_path is not None:
             logging.info('Do  Init Inception')
-            self._saver.restore(session, self._model_path)
+            self._init_fn_inception(session)
 
     def before_run(self, run_context):  # pylint: disable=unused-argument
         return None
