@@ -145,6 +145,11 @@ def parse_args():
         default='cnn',
         help='Encoder',
     )
+    parser.add_argument(
+        '--inception_checkpoint',
+        default=None,
+        help='inception_checkpoint',
+    )
 
     parser.add_argument(
         '--warm_start_from',
@@ -286,6 +291,7 @@ def main():
         'max_width':args.max_width,
         'conv': args.conv,
         'warm_start_from': args.warm_start_from,
+        'inception_checkpoint': args.inception_checkpoint,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):

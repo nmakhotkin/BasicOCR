@@ -11,6 +11,7 @@ from tensorflow.python.training import training_util
 from tensorflow.contrib.slim.nets import inception
 from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets import inception_v3
+from tensorflow.python.training import session_run_hook
 
 ENGLISH_CHAR_MAP = [
     '',
@@ -229,6 +230,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             decoder=decoder, output_time_major=False,
             impute_finished=True, maximum_iterations=params['max_target_seq_length']
         )
+        hooks = []
         if mode == tf.estimator.ModeKeys.TRAIN:
             predictions = None
             export_outputs = None
@@ -245,6 +247,8 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
                 gradients, variables = zip(*opt.compute_gradients(loss))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
                 train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],global_step = tf.train.get_or_create_global_step())
+            if params['inception_checkpoint'] is not None:
+                hooks.append(IniInceptionHook(params['inception_checkpoint']))
         else:
             train_op = None
             loss = None
@@ -257,7 +261,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         eval_metric_ops=None,
         predictions=predictions,
         loss=loss,
-        training_hooks=None,
+        training_hooks=hooks,
         export_outputs=export_outputs,
         train_op=train_op)
 
@@ -285,3 +289,24 @@ class AOCR(tf.estimator.Estimator):
             params=params,
             warm_start_from=warm_start_from
         )
+
+
+class IniInceptionHook(session_run_hook.SessionRunHook):
+    def __init__(self, model_path):
+        self._model_path = model_path
+        self._ops = None
+
+    def begin(self):
+        None
+
+    def after_create_session(self, session, coord):
+        from tensorflow.python.training import saver as tf_saver
+        saver = tf_saver.Saver()
+        logging.info('Do  Init Inception')
+        saver.restore(session, self._model_path)
+
+    def before_run(self, run_context):  # pylint: disable=unused-argument
+        return None
+
+    def after_run(self, run_context, run_values):
+        None
