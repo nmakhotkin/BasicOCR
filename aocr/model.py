@@ -180,6 +180,8 @@ def _inception(freatures,encode_coordinate):
 
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
+    if features is dict:
+        features = features['images']
     if params['conv']=='inception':
         conv_output = _inception(features,True)
     else:
@@ -188,19 +190,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
     _,t,_ = tf.unstack(tf.shape(conv_output))
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
     with tf.control_dependencies(update_ops):
-        logging.info('Conv output {}'.format(conv_output))
-        logging.info('Labels {}'.format(labels))
-        logging.info('Num Label {}'.format(params['num_labels']))
         start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
-        train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
-        output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
-        #output_embed = tf.cast(tf.reshape(train_output,[params['batch_size'],-1,1]),tf.float32)
-        #embeddings = tf.get_variable('embeddings', [params['num_labels'], params['num_labels']],trainable=True,initializer=tf.random_uniform_initializer(-1.0, 1.0))
-        output_embed = tf.contrib.layers.one_hot_encoding(train_output,params['num_labels'])
-        #output_embed = tf.nn.embedding_lookup(embeddings,train_output)
-        logging.info('output_embed {}'.format(output_embed))
-        #logging.info('output_embed1 {}'.format(output_embed1))
-        logging.info('output_lengths {}'.format(output_lengths))
         if mode != tf.estimator.ModeKeys.TRAIN:
             #with tf.variable_scope('aocr', reuse=True):
             #    embeddings = tf.get_variable('embeddings')
@@ -208,6 +198,14 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                 _embedding_fn, start_tokens=tf.to_int32(start_tokens), end_token=1)
         else:
+            logging.info('Conv output {}'.format(conv_output))
+            logging.info('Labels {}'.format(labels))
+            logging.info('Num Label {}'.format(params['num_labels']))
+            train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
+            output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
+            output_embed = tf.contrib.layers.one_hot_encoding(train_output,params['num_labels'])
+            logging.info('output_embed {}'.format(output_embed))
+            logging.info('output_lengths {}'.format(output_lengths))
             logging.info('TrainingHelper')
             helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
 
