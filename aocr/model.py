@@ -180,7 +180,7 @@ def _inception(freatures,encode_coordinate):
 
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
-    if features is dict:
+    if isinstance(features,dict):
         features = features['images']
     if params['conv']=='inception':
         conv_output = _inception(features,True)
