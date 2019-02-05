@@ -207,7 +207,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             logging.info('output_embed {}'.format(output_embed))
             logging.info('output_lengths {}'.format(output_lengths))
             logging.info('TrainingHelper')
-            helper = tf.contrib.seq2seq.ScheduledOutputTrainingHelper(output_embed, output_lengths,0.5,next_inputs_fn=_embedding_fn)
+            helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths,_embedding_fn,0.5)
 
         input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + tf.cast(t,tf.int64)
         logging.info('input_lengths {} count {}'.format(input_lengths,params['max_width']))
