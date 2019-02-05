@@ -189,12 +189,12 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         conv_output = cnn_model.tf_output()
     _,t,_ = tf.unstack(tf.shape(conv_output))
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    _embedding_fn = lambda ids: tf.contrib.layers.one_hot_encoding(ids,params['num_labels'])
     with tf.control_dependencies(update_ops):
         start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
         if mode != tf.estimator.ModeKeys.TRAIN:
             #with tf.variable_scope('aocr', reuse=True):
             #    embeddings = tf.get_variable('embeddings')
-            _embedding_fn = lambda ids: tf.contrib.layers.one_hot_encoding(ids,params['num_labels'])
             helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
                 _embedding_fn, start_tokens=tf.to_int32(start_tokens), end_token=1)
         else:
@@ -207,7 +207,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             logging.info('output_embed {}'.format(output_embed))
             logging.info('output_lengths {}'.format(output_lengths))
             logging.info('TrainingHelper')
-            helper = tf.contrib.seq2seq.TrainingHelper(output_embed, output_lengths)
+            helper = tf.contrib.seq2seq.ScheduledOutputTrainingHelper(output_embed, output_lengths,0.5,next_inputs_fn=_embedding_fn)
 
         input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + tf.cast(t,tf.int64)
         logging.info('input_lengths {} count {}'.format(input_lengths,params['max_width']))
@@ -238,7 +238,6 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             tf.summary.image('input',features,2)
             opt = tf.train.AdamOptimizer(params['learning_rate'])
             if params['grad_clip'] is None:
-
                 train_op = opt.minimize(loss,global_step = tf.train.get_or_create_global_step())
             else:
                 logging.info("Clip")
