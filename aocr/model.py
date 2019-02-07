@@ -44,7 +44,8 @@ def tf_input_fn(params, is_training):
     for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
         datasets_files.append(tf_file)
     max_target_seq_length = params['max_target_seq_length']
-    max_target_seq_length_1 = max_target_seq_length-1
+    max_target_seq_length_1 = max_target_seq_length - 1
+
     def _input_fn():
         ds = tf.data.TFRecordDataset(datasets_files, buffer_size=256 * 1024 * 1024)
 
@@ -62,9 +63,6 @@ def tf_input_fn(params, is_training):
             if len(labels) > max_target_seq_length_1:
                 labels = labels[:max_target_seq_length_1]
             labels.append(1)
-            #if len(labels)<max_target_seq_length:
-            #    for _ in range(max_target_seq_length-len(labels)):
-            #        labels.append(1)
             return np.array(labels, dtype=np.int64)
 
         def _parser(example):
@@ -108,6 +106,7 @@ def tf_input_fn(params, is_training):
 
     return _input_fn
 
+
 def encode_coordinates_fn(net):
     _, h, w, _ = net.shape.as_list()
     x, y = tf.meshgrid(tf.range(w), tf.range(h))
@@ -116,6 +115,7 @@ def encode_coordinates_fn(net):
     loc = tf.concat([h_loc, w_loc], 2)
     loc = tf.tile(tf.expand_dims(loc, 0), tf.stack([tf.shape(net)[0], 1, 1, 1]))
     return tf.concat([net, loc], 3)
+
 
 def _inception_v3_arg_scope(is_training=True,
                             weight_decay=0.00004,
@@ -159,7 +159,8 @@ def _inception_v3_arg_scope(is_training=True,
                 normalizer_params=batch_norm_params) as sc:
             return sc
 
-def _inception(freatures,encode_coordinate):
+
+def _inception(freatures, encode_coordinate):
     with slim.arg_scope(_inception_v3_arg_scope(is_training=True)):
         with slim.arg_scope(
                 [slim.conv2d, slim.fully_connected, slim.batch_norm],
@@ -180,79 +181,65 @@ def _inception(freatures,encode_coordinate):
 
 
 def _aocr_model_fn(features, labels, mode, params=None, config=None):
-    if isinstance(features,dict):
+    if isinstance(features, dict):
         features = features['images']
-    if params['conv']=='inception':
-        conv_output = _inception(features,True)
+    if params['conv'] == 'inception':
+        conv_output = _inception(features, True)
     else:
         cnn_model = CNN(features, mode == tf.estimator.ModeKeys.TRAIN)
         conv_output = cnn_model.tf_output()
-    _,t,_ = tf.unstack(tf.shape(conv_output))
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    _embedding_fn = lambda ids: tf.contrib.layers.one_hot_encoding(ids,params['num_labels'])
-    with tf.control_dependencies(update_ops):
-        start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
-        if mode != tf.estimator.ModeKeys.TRAIN:
-            #with tf.variable_scope('aocr', reuse=True):
-            #    embeddings = tf.get_variable('embeddings')
-            helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
-                _embedding_fn, start_tokens=tf.to_int32(start_tokens), end_token=1)
-        else:
-            logging.info('Conv output {}'.format(conv_output))
-            logging.info('Labels {}'.format(labels))
-            logging.info('Num Label {}'.format(params['num_labels']))
-            train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
-            output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
-            output_embed = tf.contrib.layers.one_hot_encoding(train_output,params['num_labels'])
-            logging.info('output_embed {}'.format(output_embed))
-            logging.info('output_lengths {}'.format(output_lengths))
-            logging.info('TrainingHelper')
-            helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths,_embedding_fn,0.5)
+    _, t, _ = tf.unstack(tf.shape(conv_output))
+    input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + tf.cast(t, tf.int64)
+    with tf.variable_scope('embedding'):
+        embedding = tf.get_variable(
+            'embedding_op',
+            [params['num_labels'], 512],
+            initializer=tf.random_uniform_initializer(-1, 1),
+            dtype=tf.float32)
 
-        input_lengths = tf.zeros((params['batch_size']), dtype=tf.int64) + tf.cast(t,tf.int64)
-        logging.info('input_lengths {} count {}'.format(input_lengths,params['max_width']))
-        attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
-            num_units=params['hidden_size'], memory=conv_output,
-            memory_sequence_length=input_lengths)
-        cell = tf.contrib.rnn.GRUCell(num_units=params['hidden_size'])
-        attn_cell = tf.contrib.seq2seq.AttentionWrapper(
-            cell, attention_mechanism, attention_layer_size=params['hidden_size'])
-        out_cell = tf.contrib.rnn.OutputProjectionWrapper(
-            attn_cell, params['num_labels']
-        )
-        decoder = tf.contrib.seq2seq.BasicDecoder(
-            cell=out_cell, helper=helper,
-            initial_state=out_cell.zero_state(
-                dtype=tf.float32, batch_size=params['batch_size']))
-        outputs = tf.contrib.seq2seq.dynamic_decode(
-            decoder=decoder, output_time_major=False,
-            impute_finished=True, maximum_iterations=params['max_target_seq_length']
-        )
-        hooks = []
-        if mode == tf.estimator.ModeKeys.TRAIN:
-            predictions = None
-            export_outputs = None
-            train_outputs = outputs[0]
-            weights = tf.to_float(tf.not_equal(train_output[:, :-1], 1))
-            loss = tf.contrib.seq2seq.sequence_loss(train_outputs.rnn_output, labels, weights=weights)
-            tf.summary.image('input',features,2)
-            opt = tf.train.AdamOptimizer(params['learning_rate'])
+    enc_state = _encoder(params, conv_output, input_lengths)
+    start_tokens = tf.zeros([params['batch_size']], dtype=tf.int64)
+    if mode != tf.estimator.ModeKeys.TRAIN:
+        helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+            embedding, start_tokens=tf.to_int32(start_tokens), end_token=1)
+    else:
+        train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
+        output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
+        output_embed = tf.nn.embedding_lookup(embedding, train_output)
+        logging.info('output_embed {}'.format(output_embed))
+        logging.info('output_lengths {}'.format(output_lengths))
+        logging.info('TrainingHelper')
+        helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths, embedding, 0.5)
+
+    outputs = _decoder(params, enc_state, conv_output, input_lengths, helper)
+    hooks = []
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        predictions = None
+        export_outputs = None
+        train_outputs = outputs[0]
+        weights = tf.to_float(tf.not_equal(train_output[:, :-1], 1))
+        loss = tf.contrib.seq2seq.sequence_loss(train_outputs.rnn_output, labels, weights=weights)
+        tf.summary.image('input', features, 2)
+        opt = tf.train.AdamOptimizer(params['learning_rate'])
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
             if params['grad_clip'] is None:
-                train_op = opt.minimize(loss,global_step = tf.train.get_or_create_global_step())
+                train_op = opt.minimize(loss, global_step=tf.train.get_or_create_global_step())
             else:
                 logging.info("Clip")
                 gradients, variables = zip(*opt.compute_gradients(loss))
                 gradients, _ = tf.clip_by_global_norm(gradients, params['grad_clip'])
-                train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],global_step = tf.train.get_or_create_global_step())
+                train_op = opt.apply_gradients([(gradients[i], v) for i, v in enumerate(variables)],
+                                               global_step=tf.train.get_or_create_global_step())
             if params['inception_checkpoint'] is not None:
                 hooks.append(IniInceptionHook(params['inception_checkpoint']))
-        else:
-            train_op = None
-            loss = None
-            predictions = outputs[0].sample_id
-            export_outputs = {
-                tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: tf.estimator.export.PredictOutput(
-                    predictions)}
+    else:
+        train_op = None
+        loss = None
+        predictions = outputs[0].sample_id
+        export_outputs = {
+            tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: tf.estimator.export.PredictOutput(
+                predictions)}
     return tf.estimator.EstimatorSpec(
         mode=mode,
         eval_metric_ops=None,
@@ -261,6 +248,34 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         training_hooks=hooks,
         export_outputs=export_outputs,
         train_op=train_op)
+
+
+def _encoder(params, inputs, input_lengths):
+    cells = [tf.contrib.rnn.GRUCell(params['hidden_size']) for _ in range(params['num_layers'])]
+    mrnn = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
+    _, enc_state = tf.nn.dynamic_rnn(mrnn, inputs, sequence_length=input_lengths, swap_memory=True, dtype=tf.float32)
+    return enc_state
+
+
+def _decoder(params, enc_state, enc_input, enc_input_lengths, helper):
+    cells = [tf.contrib.rnn.GRUCell(params['hidden_size']) for _ in range(params['num_layers'])]
+    mrnn = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
+    attention_mechanism = tf.contrib.seq2seq.BahdanauAttention(
+        num_units=params['hidden_size'], memory=enc_input,
+        memory_sequence_length=enc_input_lengths)
+    attn_cell = tf.contrib.seq2seq.AttentionWrapper(
+        mrnn, attention_mechanism, attention_layer_size=params['hidden_size'])
+    dec_cell = tf.contrib.rnn.OutputProjectionWrapper(
+        attn_cell, params['num_labels']
+    )
+    decoder = tf.contrib.seq2seq.BasicDecoder(dec_cell, helper, enc_state)
+    dec_outputs = tf.contrib.seq2seq.dynamic_decode(
+        decoder,
+        output_time_major=False,
+        impute_finished=True,
+        maximum_iterations=params['max_target_seq_length'])
+
+    return dec_outputs
 
 
 class AOCR(tf.estimator.Estimator):
