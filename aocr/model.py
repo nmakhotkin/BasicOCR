@@ -210,19 +210,11 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         with tf.variable_scope('embedding'):
             output_embed = tf.nn.embedding_lookup(embedding, train_output)
 
-        def _embedding_fn(ids):
-            logging.info('ids {}'.format(ids))
-            with tf.variable_scope('embedding',reuse=True):
-                return tf.nn.embedding_lookup(embedding, ids)
 
         logging.info('output_embed {}'.format(output_embed))
         logging.info('output_lengths {}'.format(output_lengths))
         logging.info('TrainingHelper')
-        helper = tf.contrib.seq2seq.TrainingHelper(
-            output_embed,
-            output_lengths,
-            time_major=False)
-        ##helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths, _embedding_fn, 0.5)
+        helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths, embedding, 0.5)
 
     outputs = _decoder(params, enc_state, conv_output, input_lengths, helper)
     hooks = []
