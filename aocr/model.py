@@ -274,7 +274,7 @@ def _decoder(params, enc_state, enc_input, enc_input_lengths, helper):
     output_layer = tf.layers.Dense(params['num_labels'])
     initial_state = attn_cell.zero_state(dtype=tf.float32, batch_size=params['batch_size'])
     initial_state = initial_state.clone(cell_state=enc_state)
-    decoder = tf.contrib.seq2seq.BasicDecoder(mrnn, helper, enc_state,output_layer=output_layer)
+    decoder = tf.contrib.seq2seq.BasicDecoder(attn_cell, helper, initial_state,output_layer=output_layer)
     dec_outputs = tf.contrib.seq2seq.dynamic_decode(
         decoder,
         output_time_major=False,
