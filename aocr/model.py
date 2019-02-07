@@ -195,6 +195,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
             'embedding_op',
             [params['num_labels'], 512],
             initializer=tf.random_uniform_initializer(-1, 1),
+            trainable=True,
             dtype=tf.float32)
 
     enc_state = _encoder(params, conv_output, input_lengths)
@@ -205,11 +206,23 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
     else:
         train_output = tf.concat([tf.expand_dims(start_tokens, 1), labels], 1)
         output_lengths = tf.reduce_sum(tf.to_int32(tf.not_equal(train_output, 1)), 1)
-        output_embed = tf.nn.embedding_lookup(embedding, train_output)
+        #output_lengths = tf.ones([params['batch_size']], tf.int32) * params['max_target_seq_length']
+        with tf.variable_scope('embedding'):
+            output_embed = tf.nn.embedding_lookup(embedding, train_output)
+
+        def _embedding_fn(ids):
+            logging.info('ids {}'.format(ids))
+            with tf.variable_scope('embedding',reuse=True):
+                return tf.nn.embedding_lookup(embedding, ids)
+
         logging.info('output_embed {}'.format(output_embed))
         logging.info('output_lengths {}'.format(output_lengths))
         logging.info('TrainingHelper')
-        helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths, embedding, 0.5)
+        helper = tf.contrib.seq2seq.TrainingHelper(
+            output_embed,
+            output_lengths,
+            time_major=False)
+        ##helper = tf.contrib.seq2seq.ScheduledEmbeddingTrainingHelper(output_embed, output_lengths, _embedding_fn, 0.5)
 
     outputs = _decoder(params, enc_state, conv_output, input_lengths, helper)
     hooks = []
@@ -222,7 +235,8 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
         tf.summary.image('input', features, 2)
         opt = tf.train.AdamOptimizer(params['learning_rate'])
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(update_ops):
+        logging.info("Updates: {}".format(update_ops))
+        with tf.control_dependencies([]):
             if params['grad_clip'] is None:
                 train_op = opt.minimize(loss, global_step=tf.train.get_or_create_global_step())
             else:
@@ -253,7 +267,7 @@ def _aocr_model_fn(features, labels, mode, params=None, config=None):
 def _encoder(params, inputs, input_lengths):
     cells = [tf.contrib.rnn.GRUCell(params['hidden_size']) for _ in range(params['num_layers'])]
     mrnn = tf.contrib.rnn.MultiRNNCell(cells, state_is_tuple=True)
-    _, enc_state = tf.nn.dynamic_rnn(mrnn, inputs, sequence_length=input_lengths, swap_memory=True, dtype=tf.float32)
+    _, enc_state = tf.nn.dynamic_rnn(mrnn, inputs, sequence_length=input_lengths, dtype=tf.float32)
     return enc_state
 
 
@@ -265,10 +279,10 @@ def _decoder(params, enc_state, enc_input, enc_input_lengths, helper):
         memory_sequence_length=enc_input_lengths)
     attn_cell = tf.contrib.seq2seq.AttentionWrapper(
         mrnn, attention_mechanism, attention_layer_size=params['hidden_size'])
-    dec_cell = tf.contrib.rnn.OutputProjectionWrapper(
-        attn_cell, params['num_labels']
-    )
-    decoder = tf.contrib.seq2seq.BasicDecoder(dec_cell, helper, enc_state)
+    output_layer = tf.layers.Dense(params['num_labels'])
+    initial_state = attn_cell.zero_state(dtype=tf.float32, batch_size=params['batch_size'])
+    initial_state = initial_state.clone(cell_state=enc_state)
+    decoder = tf.contrib.seq2seq.BasicDecoder(mrnn, helper, enc_state,output_layer=output_layer)
     dec_outputs = tf.contrib.seq2seq.dynamic_decode(
         decoder,
         output_time_major=False,

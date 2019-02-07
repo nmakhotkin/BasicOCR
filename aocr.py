@@ -206,6 +206,7 @@ def export(checkpoint_dir,params):
 
 def train(mode, checkpoint_dir, params):
     logging.info("start build  model")
+    logging.info("TF: {}".format(tf.__version__))
 
     save_summary_steps = params['save_summary_steps']
     save_checkpoints_secs = params['save_checkpoints_secs'] if params['save_checkpoints_steps'] is None else None
