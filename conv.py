@@ -190,10 +190,10 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
         features = features['images']
 
     batch_size = params['batch_size']
-    features = tf.reshape(features, [batch_size, features.shape[1] * features.shape[2], 3])
+    features = tf.reshape(features, shape=(batch_size, -1, 3))
     labels = tf.reshape(labels, [batch_size, params['max_target_seq_length']])
     outputs = tf.layers.conv1d(
-        features, filters=250, kernel_size=[48], strides=2, padding='SAME', activation=tf.nn.relu
+        features, filters=250, kernel_size=[32], strides=2, padding='SAME', activation=tf.nn.relu
     )
     outputs = tf.layers.conv1d(
         outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
@@ -251,7 +251,13 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
 
         # CTC_Loss expects log_probs input shape
         # (batch_size, max_time, num_classes)
-        ctc_loss = tf.nn.ctc_loss(sparse, log_probs, sequence_length=lengths, time_major=False)
+        ctc_loss = tf.nn.ctc_loss(
+            sparse,
+            log_probs,
+            sequence_length=lengths,
+            time_major=False,
+            preprocess_collapse_repeated=True,
+        )
         loss = tf.reduce_mean(ctc_loss)
         train_op = opt.minimize(loss, global_step=tf.train.get_or_create_global_step())
     else:
@@ -347,7 +353,7 @@ def train(mode, checkpoint_dir, params):
     )
     logging.info("Start %s mode", mode)
 
-    params['max_target_seq_length'] = params['num_labels']
+    # params['max_target_seq_length'] = params['num_labels']
 
     if mode == 'train':
         input_fn = aocr.tf_input_fn(params, True)

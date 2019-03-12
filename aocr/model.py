@@ -83,7 +83,7 @@ def tf_input_fn(params, is_training):
                     tf.FixedLenFeature((), tf.string, default_value=''),
             }
             res = tf.parse_single_example(example, features)
-            img = tf.image.decode_png(res['image/encoded'], channels=3)
+            img = tf.image.decode_image(res['image/encoded'], channels=3)
             original_w = tf.cast(res['image/width'][0], tf.int32)
             original_h = tf.cast(res['image/height'][0], tf.int32)
             img = tf.reshape(img, [original_h, original_w, 3])
