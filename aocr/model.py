@@ -63,6 +63,11 @@ def tf_input_fn(params, is_training):
             if len(labels) > max_target_seq_length_1:
                 labels = labels[:max_target_seq_length_1]
             labels.append(1)
+
+            if params.get('normalize_length'):
+                if len(labels) < max_target_seq_length:
+                    labels.extend([1] * (max_target_seq_length - len(labels)))
+
             return np.array(labels, dtype=np.int64)
 
         def _parser(example):
