@@ -190,44 +190,45 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
         features = features['images']
 
     batch_size = params['batch_size']
-    features = tf.reshape(features, shape=(batch_size, -1, 3))
+    # features = tf.reshape(features, shape=(batch_size, -1, 3))
     labels = tf.reshape(labels, [batch_size, params['max_target_seq_length']])
-    outputs = tf.layers.conv1d(
-        features, filters=250, kernel_size=[32], strides=2, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        features, filters=128, kernel_size=[32, 32], strides=3, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=250, kernel_size=[7], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=2000, kernel_size=[32], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=500, kernel_size=[32, 32], strides=2, padding='SAME', activation=tf.nn.relu
     )
-    outputs = tf.layers.conv1d(
-        outputs, filters=2000, kernel_size=[1], strides=1, padding='SAME', activation=tf.nn.relu
+    outputs = tf.layers.conv2d(
+        outputs, filters=500, kernel_size=[2, 2], strides=1, padding='SAME', activation=tf.nn.relu
     )
-    y_pred = tf.layers.conv1d(
-        outputs, filters=params['num_labels'], kernel_size=[1], strides=1, padding='SAME'
+    y_pred = tf.layers.conv2d(
+        outputs, filters=params['num_labels'], kernel_size=[2, 2], strides=1, padding='SAME'
     )
+    y_pred = tf.reshape(y_pred, shape=(-1, y_pred.shape[1] * y_pred.shape[2], y_pred.shape[3]))
 
     hooks = []
-    log_probs = tf.nn.log_softmax(y_pred, axis=1)
+    log_probs = tf.nn.log_softmax(y_pred)
     if mode == tf.estimator.ModeKeys.TRAIN:
         predictions = None
         export_outputs = None
