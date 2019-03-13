@@ -40,6 +40,12 @@ def tf_input_fn(params, is_training):
     max_width = params['max_width']
     batch_size = params['batch_size']
     _, inv_charset = read_charset()
+    blank_label = 1
+
+    if params.get('last_blank_label'):
+        inv_charset[" "], inv_charset[""] = inv_charset[""], inv_charset[" "]
+        blank_label = len(inv_charset) - 1
+
     datasets_files = []
     for tf_file in glob.iglob(params['data_set'] + '/*.tfrecord'):
         datasets_files.append(tf_file)
@@ -62,11 +68,11 @@ def tf_input_fn(params, is_training):
                 labels.append(inv_charset[' '])
             if len(labels) > max_target_seq_length_1:
                 labels = labels[:max_target_seq_length_1]
-            labels.append(1)
+            labels.append(blank_label)
 
             if params.get('normalize_length'):
                 if len(labels) < max_target_seq_length:
-                    labels.extend([1] * (max_target_seq_length - len(labels)))
+                    labels.extend([blank_label] * (max_target_seq_length - len(labels)))
 
             return np.array(labels, dtype=np.int64)
 

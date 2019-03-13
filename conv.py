@@ -256,7 +256,8 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
             log_probs,
             sequence_length=lengths,
             time_major=False,
-            preprocess_collapse_repeated=True,
+            preprocess_collapse_repeated=False,
+            ctc_merge_repeated=False,
         )
         loss = tf.reduce_mean(ctc_loss)
         train_op = opt.minimize(loss, global_step=tf.train.get_or_create_global_step())
@@ -420,6 +421,7 @@ def main():
         'warm_start_from': args.warm_start_from,
         'inception_checkpoint': args.inception_checkpoint,
         'normalize_length': True,
+        'last_blank_label': True,
     }
 
     if not tf.gfile.Exists(checkpoint_dir):
