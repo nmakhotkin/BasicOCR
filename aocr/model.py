@@ -4,7 +4,6 @@ from __future__ import print_function
 
 from aocr.cnn import CNN
 import tensorflow as tf
-import logging
 import glob
 import numpy as np
 from tensorflow.python.training import training_util
@@ -12,6 +11,10 @@ from tensorflow.contrib.slim.nets import inception
 from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets import inception_v3
 from tensorflow.python.training import session_run_hook
+
+
+logging = tf.logging
+
 
 ENGLISH_CHAR_MAP = [
     '',

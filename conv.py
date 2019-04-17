@@ -2,6 +2,7 @@ import argparse
 import configparser
 import json
 import logging
+import math
 import os
 
 from mlboardclient.api import client
@@ -50,34 +51,10 @@ def parse_args():
         help='Recommended learning_rate is 2e-4',
     )
     parser.add_argument(
-        '--num_layers',
-        type=int,
-        default=1,
-        help='Number RNN layers.',
-    )
-    parser.add_argument(
-        '--rnn_type',
-        default='BasicLSTM',
-        choices=['BasicLSTM', 'CudnnLSTM', 'CudnnCompatibleLSTM'],
-        help='Witch LSTM cell use for RNN',
-    )
-    parser.add_argument(
         '--max_target_seq_length',
         type=int,
         default=80,
         help='Maximum number of letters we allow in a single training (or test) example output',
-    )
-    parser.add_argument(
-        '--hidden_size',
-        type=int,
-        default=16,
-        help='LSTM hidden size.',
-    )
-    parser.add_argument(
-        '--lstm_direction_type',
-        choices=['unidirectional', 'bidirectional'],
-        default='unidirectional',
-        help='Set LSTM direction type',
     )
     parser.add_argument(
         '--grad_clip',
@@ -95,7 +72,7 @@ def parse_args():
         '--epoch',
         type=int,
         default=1,
-        help='Epoch to trian',
+        help='Epoch to train',
     )
     parser.add_argument(
         '--save_summary_steps',
@@ -131,7 +108,10 @@ def parse_args():
         '--log_step_count_steps',
         type=int,
         default=100,
-        help='The frequency, in number of global steps, that the global step/sec and the loss will be logged during training.',
+        help=(
+            'The frequency, in number of global steps, that the global'
+            ' step/sec and the loss will be logged during training.',
+        )
     )
     parser.add_argument(
         '--data_set',
@@ -143,17 +123,11 @@ def parse_args():
         default='synth-crop',
         help='Dataset type',
     )
-    parser.add_argument(
-        '--conv',
-        default='cnn',
-        help='Encoder',
-    )
-    parser.add_argument(
-        '--inception_checkpoint',
-        default=None,
-        help='inception_checkpoint',
-    )
-
+    # parser.add_argument(
+    #     '--conv',
+    #     default='cnn',
+    #     help='Encoder',
+    # )
     parser.add_argument(
         '--warm_start_from',
         type=str,
@@ -193,55 +167,45 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
     # features = tf.reshape(features, shape=(batch_size, -1, 3))
     labels = tf.reshape(labels, [batch_size, params['max_target_seq_length']])
     outputs = tf.layers.conv2d(
-        features, filters=128, kernel_size=[32, 32], strides=3, padding='SAME', activation=tf.nn.relu
+        features, filters=128, kernel_size=[32, 32], strides=2, padding='SAME', activation=tf.nn.relu
+    )
+    for i in range(5):
+        outputs = tf.layers.conv2d(
+            outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
+        )
+
+    outputs = tf.layers.conv2d(
+        outputs, filters=512, kernel_size=[3, 3], strides=1, padding='SAME', activation=tf.nn.relu
     )
     outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
+        outputs, filters=512, kernel_size=[2, 2], strides=1, padding='SAME', activation=tf.nn.relu
     )
     outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
+        outputs, filters=params['num_labels'], kernel_size=[1, 1], strides=1, padding='SAME'
     )
-    outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=128, kernel_size=[7, 7], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=500, kernel_size=[32, 32], strides=2, padding='SAME', activation=tf.nn.relu
-    )
-    outputs = tf.layers.conv2d(
-        outputs, filters=500, kernel_size=[2, 2], strides=1, padding='SAME', activation=tf.nn.relu
-    )
-    y_pred = tf.layers.conv2d(
-        outputs, filters=params['num_labels'], kernel_size=[2, 2], strides=1, padding='SAME'
-    )
-    y_pred = tf.reshape(y_pred, shape=(-1, y_pred.shape[1] * y_pred.shape[2], y_pred.shape[3]))
+
+    # Convert to shape [batch_size, num_classes, filter_height, filter_width] and squash last dimension
+    outputs = tf.layers.dense(tf.transpose(outputs, [0, 3, 1, 2]), 1)
+    outputs = tf.squeeze(outputs, axis=3)
+    outputs = tf.layers.dense(outputs, params['max_target_seq_length'])
+
+    log_probs = tf.transpose(outputs, [2, 0, 1])
+    # logits now shaped [max_time, batch_size, num_classes]
 
     hooks = []
-    log_probs = tf.nn.log_softmax(y_pred)
+    labels = tf.cast(labels, tf.int32)
+    # lengths = tf.foldl(lambda x, y: x, labels)
+    lengths = tf.map_fn(lambda x: x.shape[0], labels)
+
     if mode == tf.estimator.ModeKeys.TRAIN:
         predictions = None
         export_outputs = None
-        opt = tf.train.AdamOptimizer(params['learning_rate'])
+        opt = tf.train.AdamOptimizer(params['learning_rate'], epsilon=1e-3)
 
         # __import__('ipdb').set_trace()
 
         # log_probs = tf.transpose(log_probs, [1, 2])
         # log_probs = tf.transpose(log_probs, [0, 1])
-
-        labels = tf.cast(labels, tf.int32)
-        # lengths = tf.foldl(lambda x, y: x, labels)
-        lengths = tf.map_fn(lambda x: x.shape[0], labels)
 
         zero = tf.constant(0, dtype=tf.int32)
         where = tf.not_equal(labels, zero)
@@ -251,24 +215,52 @@ def _im2letter_model_fn(features, labels, mode, params=None, config=None):
         # loss = loss_ops.mean_squared_error(log_probs, labels)
 
         # CTC_Loss expects log_probs input shape
-        # (batch_size, max_time, num_classes)
+        # (max_time, batch_size, num_classes)
         ctc_loss = tf.nn.ctc_loss(
             sparse,
             log_probs,
             sequence_length=lengths,
-            time_major=False,
+            time_major=True,
             preprocess_collapse_repeated=False,
             ctc_merge_repeated=False,
         )
         loss = tf.reduce_mean(ctc_loss)
-        train_op = opt.minimize(loss, global_step=tf.train.get_or_create_global_step())
+
+        gvs = opt.compute_gradients(loss)
+        gradients, trainables = zip(*gvs)
+        clipped_gradients, norm = tf.clip_by_global_norm(gradients, 5.0, name='clip_gradients')
+        train_op = opt.apply_gradients(
+            zip(clipped_gradients, trainables),
+            global_step=tf.train.get_or_create_global_step(), name='apply_gradients'
+        )
     else:
         train_op = None
         loss = None
-        predictions = tf.nn.top_k(outputs, k=1)
+
+        # with tf.name_scope('decoding'):
+        if params['beam_search_decoder']:
+            softmaxed = tf.log(tf.nn.softmax(log_probs, name='softmax') + 1e-8) / math.log(10)
+            predictions, log_probabilities = tf.nn.ctc_beam_search_decoder(
+                softmaxed,
+                lengths // 2,
+                beam_width=100,
+                merge_repeated=False,
+                top_paths=1
+            )
+        else:
+            predictions, log_probabilities = tf.nn.ctc_greedy_decoder(
+                log_probs,
+                lengths // 2,
+                merge_repeated=True
+            )
+
+        # predictions = tf.nn.top_k(outputs, k=1)
         sig_def = const.DEFAULT_SERVING_SIGNATURE_DEF_KEY
         export_outputs = {
-            sig_def: tf.estimator.export.PredictOutput(predictions)
+            sig_def: {
+                'predictions': predictions,
+                'probabilities': log_probabilities,
+            }
         }
 
     return tf.estimator.EstimatorSpec(
@@ -408,19 +400,13 @@ def main():
         'limit_train': args.limit_train,
         'max_target_seq_length': args.max_target_seq_length,
         'num_labels': len(charset),
-        'rnn_type': args.rnn_type,
         'beam_search_decoder': args.export,
         'grad_clip': args.grad_clip,
-        'hidden_size': args.hidden_size,
-        'num_layers': args.num_layers,
         'output_keep_prob': args.output_keep_prob,
-        'lstm_direction_type': args.lstm_direction_type,
         'charset': charset,
         'data_set_type': args.data_set_type,
         'max_width': args.max_width,
-        'conv': args.conv,
         'warm_start_from': args.warm_start_from,
-        'inception_checkpoint': args.inception_checkpoint,
         'normalize_length': True,
         'last_blank_label': True,
     }
