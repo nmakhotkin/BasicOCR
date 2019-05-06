@@ -82,11 +82,11 @@ def main():
         pdfrw.PdfWriter().write(args.output, template)
         pages = pdf2image.convert_from_path(args.output, dpi=300)
         image = pages[0]
-        image = image.transform(
-            (image.width, image.height),
-            Image.QUAD,
-            (50, 2, 0, image.height - 10, image.width - 100, image.height - 100, image.width,0)
-        )
+        # image = image.transform(
+        #     (image.width, image.height),
+        #     Image.QUAD,
+        #     (50, 2, 0, image.height - 10, image.width - 100, image.height - 100, image.width,0)
+        # )
         image = rotate(image, -1.5)
         image.save(args.output, 'JPEG')
 
