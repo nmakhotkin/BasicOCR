@@ -7,7 +7,6 @@ from skimage import transform
 
 
 def parse_args():
-    # construct the argument parse and parse the arguments
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "image",
@@ -41,10 +40,8 @@ def image_resize(image, width=None, height=None, inter=cv2.INTER_AREA):
         r = width / float(w)
         dim = (width, int(h * r))
 
-    # resize the image
     resized = cv2.resize(image, dim, interpolation=inter)
 
-    # return the resized image
     return resized
 
 
@@ -88,7 +85,6 @@ def derotate2(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     # t = time.time()
-    # edges = feature.canny(gray, sigma=sigma)
     edges = cv2.Canny(gray, 25, 255)
     # print("canny: {:.3f}ms".format((time.time() - t) * 1000))
     # t = time.time()
@@ -220,14 +216,12 @@ def rotate(image, angle):
 
 
 def main():
-    # load the image from disk
     args = parse_args()
     image = cv2.imread(args.image)
 
     t = time.time()
     rotated, angle = derotate2(image)
     print("derotate: {:.3f}ms".format((time.time() - t) * 1000))
-    # show the output image
     print("[INFO] angle: {:.3f}".format(angle))
 
     if image.shape[0] >= 1000:
