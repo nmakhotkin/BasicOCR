@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import cv2
 import numpy as np
@@ -223,7 +224,6 @@ def main():
     args = parse_args()
     image = cv2.imread(args.image)
 
-    import time
     t = time.time()
     rotated, angle = derotate2(image)
     print("derotate: {:.3f}ms".format((time.time() - t) * 1000))
