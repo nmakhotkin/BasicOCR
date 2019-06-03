@@ -5,6 +5,7 @@ import numpy as np
 import pdfrw
 import pdf2image
 from PIL import Image
+from pdfrw.objects import pdfname
 
 
 ANNOT_KEY = '/Annots'
@@ -48,8 +49,14 @@ def set_fields(template: pdfrw.PdfReader, data: dict):
             if annotation[ANNOT_FIELD_KEY]:
                 key = annotation[ANNOT_FIELD_KEY][1:-1]
                 if key in data.keys() and data[key] is not None:
+                    kwargs = {'V': '{}'.format(data[key])}
+
+                    if annotation.V in {'/Off', '/On', '/1', '/0'}:
+                        kwargs['AS'] = pdfname.BasePdfName(data[key])
+                        kwargs['V'] = pdfname.BasePdfName(data[key])
+
                     annotation.update(
-                        pdfrw.PdfDict(V='{}'.format(data[key]))
+                        pdfrw.PdfDict(**kwargs)
                     )
 
     template.Root.AcroForm.update(pdfrw.PdfDict(NeedAppearances=pdfrw.PdfObject('true')))
@@ -80,6 +87,7 @@ def main():
         set_fields(template, data)
 
         pdfrw.PdfWriter().write(args.output, template)
+        exit(0)
         pages = pdf2image.convert_from_path(args.output, dpi=300)
         image = pages[0]
         # image = image.transform(
