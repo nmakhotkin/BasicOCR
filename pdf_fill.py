@@ -87,7 +87,6 @@ def main():
         set_fields(template, data)
 
         pdfrw.PdfWriter().write(args.output, template)
-        exit(0)
         pages = pdf2image.convert_from_path(args.output, dpi=300)
         image = pages[0]
         # image = image.transform(
